@@ -27,6 +27,22 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  apps/worker:
+    dependencies:
+      '@riskforge/infra':
+        specifier: workspace:*
+        version: link:../../packages/infra
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.11
+      tsx:
+        specifier: ^4.16.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
   packages/infra:
     dependencies:
       ioredis:
