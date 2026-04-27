@@ -1,0 +1,227 @@
+// RiskForge Database Schema
+// Postgres via Prisma ORM.
+//
+// Design principles:
+//   - Audit everything that touches money or user data.
+//   - Store simulation inputs + config as structured JSON, not loose columns,
+//     so the schema does not change every time a new simulation parameter is added.
+//   - Keep result blobs (summary, interpretation) in JSON columns so the API
+//     can return them directly without a transform step.
+//   - API keys are stored hashed (SHA-256); the raw key is shown to the user
+//     exactly once at creation time and never persisted.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & Organisations
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  simulations SimulationJob[]
+  apiKeys     ApiKey[]
+  auditLogs   AuditLog[]
+  usageEvents UsageEvent[]
+
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     OrgMember[]
+  simulations SimulationJob[]
+  apiKeys     ApiKey[]
+  auditLogs   AuditLog[]
+  usageEvents UsageEvent[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id     String  @id @default(cuid())
+  userId String
+  orgId  String
+  role   OrgRole @default(VIEWER)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, orgId])
+  @@map("org_members")
+}
+
+enum Plan {
+  FREE
+  LITE_PLUS
+  LITE_FAMILY
+  ADVISOR_PRO
+  TEAM
+  PLATFORM_API
+  ENTERPRISE
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  ANALYST
+  VIEWER
+  API_CLIENT
+}
+
+// ---------------------------------------------------------------------------
+// Simulation Jobs
+// ---------------------------------------------------------------------------
+
+model SimulationJob {
+  id            String    @id @default(cuid())
+  userId        String?
+  orgId         String?
+  kind          String    // 'portfolio_risk' | 'personal_cashflow_risk'
+  status        String    // 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+  inputHash     String    // SHA-256 of the serialised input JSON
+  configHash    String    // SHA-256 of the serialised config JSON
+  engineVersion String
+  seed          Int
+
+  // Error details (set on failure).
+  errorCode    String?
+  errorMessage String?
+
+  // Timestamps.
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  failedAt   DateTime?
+
+  user   User?         @relation(fields: [userId], references: [id])
+  org    Organization? @relation(fields: [orgId], references: [id])
+  result SimulationResult?
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([status])
+  @@index([kind])
+  @@index([inputHash, configHash, engineVersion]) // for cache hit lookups
+  @@map("simulation_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// Simulation Results
+// ---------------------------------------------------------------------------
+
+model SimulationResult {
+  id     String @id @default(cuid())
+  jobId  String @unique
+  kind   String
+
+  // Stored as JSON blobs — the API returns these directly.
+  summaryJson        Json
+  interpretationJson Json
+  metaJson           Json
+
+  createdAt DateTime @default(now())
+
+  job SimulationJob @relation(fields: [jobId], references: [id])
+
+  @@map("simulation_results")
+}
+
+// ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String?
+  orgId       String?
+  name        String
+  keyHash     String    @unique // SHA-256 of the raw key (hex)
+  keyPrefix   String    // First 8 chars of the key for display (e.g. "sk_live_")
+  scopes      String[]  // e.g. ["simulations:create", "simulations:read"]
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User?         @relation(fields: [userId], references: [id])
+  org  Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([keyHash])
+  @@index([userId])
+  @@index([orgId])
+  @@map("api_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String  @id @default(cuid())
+  userId     String?
+  orgId      String?
+  action     String  // e.g. "simulation.created", "api_key.revoked"
+  entityType String? // e.g. "SimulationJob", "ApiKey"
+  entityId   String?
+
+  // Store extra context without schema changes.
+  metadataJson Json?
+
+  // Network context (redacted in logs, stored only in DB for security review).
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  user User?         @relation(fields: [userId], references: [id])
+  org  Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Usage / Billing
+// ---------------------------------------------------------------------------
+
+model UsageEvent {
+  id        String  @id @default(cuid())
+  userId    String?
+  orgId     String?
+  eventType String  // e.g. "simulation.paths", "report.generated"
+  quantity  Int     @default(1)
+
+  metadataJson Json?
+
+  createdAt DateTime @default(now())
+
+  user User?         @relation(fields: [userId], references: [id])
+  org  Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("usage_events")
+}

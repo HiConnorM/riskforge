@@ -1,0 +1,24 @@
+{
+  "name": "@riskforge/engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "dev": "echo \"engine: no dev\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"engine: no lint yet\""
+  },
+  "dependencies": {
+    "@riskforge/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

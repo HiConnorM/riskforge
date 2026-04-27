@@ -1,0 +1,25 @@
+{
+  "name": "@riskforge/infra",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo \"infra: no dev\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"infra: no lint yet\""
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "bullmq": "^5.73.0",
+    "ioredis": "^5.4.1",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
