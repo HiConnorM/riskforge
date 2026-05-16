@@ -6,13 +6,12 @@
  * as the job return value (useful for debugging via Bull Board).
  */
 
-import type { Job } from 'bullmq';
+import { UnrecoverableError, type Job } from 'bullmq';
+import { env } from '@riskforge/config';
 import { PortfolioRiskInputSchema, PortfolioSimConfigSchema } from '@riskforge/domain';
 import type { PortfolioRiskResult } from '@riskforge/domain';
 import { simulatePortfolio, SimulationError } from '@riskforge/engine';
 import { resultCache, logger } from '@riskforge/infra';
-
-const ENGINE_VERSION = process.env['ENGINE_VERSION'] ?? '1.0.0';
 
 interface PortfolioJobData {
   kind: 'portfolio_risk';
@@ -30,14 +29,14 @@ export async function processPortfolioRisk(job: Job): Promise<PortfolioRiskResul
   // Re-validate — defence-in-depth against corrupted queue payloads.
   const inputParse = PortfolioRiskInputSchema.safeParse(data.input);
   if (!inputParse.success) {
-    throw new Error(
+    throw new UnrecoverableError(
       `INVALID_INPUT: ${JSON.stringify(inputParse.error.flatten())}`,
     );
   }
 
   const configParse = PortfolioSimConfigSchema.safeParse(data.config);
   if (!configParse.success) {
-    throw new Error(
+    throw new UnrecoverableError(
       `INVALID_CONFIG: ${JSON.stringify(configParse.error.flatten())}`,
     );
   }
@@ -62,11 +61,11 @@ export async function processPortfolioRisk(job: Job): Promise<PortfolioRiskResul
 
   let result: PortfolioRiskResult;
   try {
-    result = simulatePortfolio(input, config, ENGINE_VERSION);
+    result = simulatePortfolio(input, config, env.ENGINE_VERSION);
   } catch (err) {
     if (err instanceof SimulationError) {
-      // Non-retryable engine errors — rethrow with code prefix for caller.
-      throw new Error(`${err.code}: ${err.message}`);
+      // Deterministic engine failures — retrying won't help, fail fast.
+      throw new UnrecoverableError(`${err.code}: ${err.message}`);
     }
     throw err;
   }
@@ -75,7 +74,7 @@ export async function processPortfolioRisk(job: Job): Promise<PortfolioRiskResul
   await job.updateProgress(100);
 
   // Write to Redis cache so the API can serve it immediately.
-  await resultCache.set(job.id!, result);
+  await resultCache.set(job.id!, result, env.RESULT_TTL_SECONDS);
 
   logger.info(
     {

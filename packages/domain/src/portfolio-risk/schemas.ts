@@ -73,5 +73,4 @@ export const PortfolioSimulationRequestSchema = z.object({
   kind: z.literal('portfolio_risk'),
   input: PortfolioRiskInputSchema,
   config: PortfolioSimConfigSchema,
-  idempotencyKey: z.string().max(128).optional(),
 });

@@ -4,13 +4,12 @@
  * Same pattern as the portfolio processor: validate, simulate, cache, return.
  */
 
-import type { Job } from 'bullmq';
+import { UnrecoverableError, type Job } from 'bullmq';
+import { env } from '@riskforge/config';
 import { PersonalCashflowInputSchema, CashflowSimConfigSchema } from '@riskforge/domain';
 import type { PersonalCashflowResult } from '@riskforge/domain';
 import { simulatePersonalCashflow } from '@riskforge/engine';
 import { resultCache, logger } from '@riskforge/infra';
-
-const ENGINE_VERSION = process.env['ENGINE_VERSION'] ?? '1.0.0';
 
 interface CashflowJobData {
   kind: 'personal_cashflow_risk';
@@ -27,14 +26,14 @@ export async function processPersonalCashflow(job: Job): Promise<PersonalCashflo
 
   const inputParse = PersonalCashflowInputSchema.safeParse(data.input);
   if (!inputParse.success) {
-    throw new Error(
+    throw new UnrecoverableError(
       `INVALID_INPUT: ${JSON.stringify(inputParse.error.flatten())}`,
     );
   }
 
   const configParse = CashflowSimConfigSchema.safeParse(data.config);
   if (!configParse.success) {
-    throw new Error(
+    throw new UnrecoverableError(
       `INVALID_CONFIG: ${JSON.stringify(configParse.error.flatten())}`,
     );
   }
@@ -54,11 +53,11 @@ export async function processPersonalCashflow(job: Job): Promise<PersonalCashflo
     'Personal cashflow simulation started',
   );
 
-  const result = simulatePersonalCashflow(input, config, ENGINE_VERSION);
+  const result = simulatePersonalCashflow(input, config, env.ENGINE_VERSION);
 
   await job.updateProgress(100);
 
-  await resultCache.set(job.id!, result);
+  await resultCache.set(job.id!, result, env.RESULT_TTL_SECONDS);
 
   logger.info(
     {

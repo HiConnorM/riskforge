@@ -7,6 +7,7 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import { Queue } from 'bullmq';
+import { env } from '@riskforge/config';
 import { toErrorResponse, AppError } from './errors.js';
 import { healthRoutes } from './routes/health.routes.js';
 import { simulationRoutes } from './routes/simulations.routes.js';
@@ -14,7 +15,7 @@ import { simulationRoutes } from './routes/simulations.routes.js';
 export function buildApp(queue: Queue): FastifyInstance {
   const fastify = Fastify({
     logger: {
-      level: process.env['LOG_LEVEL'] ?? 'info',
+      level: env.LOG_LEVEL,
       timestamp: () => `,"time":"${new Date().toISOString()}"`,
       redact: {
         paths: ['req.headers.authorization', 'req.headers.cookie'],

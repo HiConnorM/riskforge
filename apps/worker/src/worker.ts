@@ -6,9 +6,9 @@
  * via WORKER_CONCURRENCY env var, default 4).
  *
  * Error handling:
- *   - Validation failures (INVALID_INPUT / INVALID_CONFIG) are non-retryable.
- *   - Engine errors (SimulationError with a code) are non-retryable.
- *   - Redis / network errors are retryable (BullMQ handles back-off).
+ *   - Processors throw UnrecoverableError for deterministic failures
+ *     (validation, engine SimulationError). BullMQ skips remaining attempts.
+ *   - Any other Error is treated as transient — BullMQ retries with back-off.
  *
  * Observability:
  *   - Each job logs: kind, jobId, elapsedMs, paths, status.
@@ -16,18 +16,10 @@
  */
 
 import { Worker, type Job, UnrecoverableError } from 'bullmq';
+import { env } from '@riskforge/config';
 import { SIM_QUEUE_NAME, logger } from '@riskforge/infra';
 import { processPortfolioRisk } from './processors/portfolio-risk.processor.js';
 import { processPersonalCashflow } from './processors/personal-cashflow.processor.js';
-
-const CONCURRENCY = parseInt(process.env['WORKER_CONCURRENCY'] ?? '4', 10);
-
-// Non-retryable error code prefixes (as set by processors).
-const NON_RETRYABLE_PREFIXES = ['INVALID_INPUT:', 'INVALID_CONFIG:', 'CORRELATION_MATRIX', 'WEIGHTS_DO_NOT', 'STUDENT_T_DF', 'UNSUPPORTED_SIMULATION'];
-
-function isNonRetryable(err: Error): boolean {
-  return NON_RETRYABLE_PREFIXES.some((prefix) => err.message.startsWith(prefix));
-}
 
 async function processJob(job: Job): Promise<unknown> {
   const kind = (job.data as { kind?: string })['kind'];
@@ -40,29 +32,14 @@ async function processJob(job: Job): Promise<unknown> {
       return processPersonalCashflow(job);
 
     default:
-      // Unknown kind — fail immediately without retrying.
       throw new UnrecoverableError(`Unsupported simulation kind: ${String(kind)}`);
   }
 }
 
-const worker = new Worker(
-  SIM_QUEUE_NAME,
-  async (job: Job) => {
-    try {
-      return await processJob(job);
-    } catch (err) {
-      if (err instanceof Error && isNonRetryable(err)) {
-        // Wrap in UnrecoverableError so BullMQ skips remaining attempts.
-        throw new UnrecoverableError(err.message);
-      }
-      throw err;
-    }
-  },
-  {
-    connection: { url: process.env['REDIS_URL'] ?? 'redis://localhost:6379' },
-    concurrency: CONCURRENCY,
-  },
-);
+const worker = new Worker(SIM_QUEUE_NAME, processJob, {
+  connection: { url: env.REDIS_URL },
+  concurrency: env.WORKER_CONCURRENCY,
+});
 
 worker.on('active', (job) => {
   logger.info({ jobId: job.id, kind: (job.data as { kind?: string })['kind'] }, 'Job started');
@@ -98,7 +75,7 @@ worker.on('error', (err) => {
 });
 
 logger.info(
-  { queue: SIM_QUEUE_NAME, concurrency: CONCURRENCY },
+  { queue: SIM_QUEUE_NAME, concurrency: env.WORKER_CONCURRENCY },
   'RiskForge worker started',
 );
 

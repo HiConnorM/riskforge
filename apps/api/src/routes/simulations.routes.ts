@@ -19,12 +19,10 @@
 import type { FastifyInstance } from 'fastify';
 import { Queue } from 'bullmq';
 import { createHash } from 'node:crypto';
+import { env } from '@riskforge/config';
 import { SimulationRequestSchema } from '@riskforge/domain';
 import { idempotency, resultCache, logger } from '@riskforge/infra';
 import { ValidationError, NotFoundError, PlanLimitError } from '../errors.js';
-
-const ENGINE_VERSION = process.env['ENGINE_VERSION'] ?? '1.0.0';
-const MAX_PATHS_ANONYMOUS = parseInt(process.env['MAX_PATHS_ANONYMOUS'] ?? '5000', 10);
 
 function sha256(data: string): string {
   return createHash('sha256').update(data).digest('hex');
@@ -69,9 +67,9 @@ export async function simulationRoutes(
     // 2. Compute abuse protection: cap paths for anonymous callers.
     // TODO: replace with plan-aware check once auth is wired up.
     const requestedPaths = extractPaths(simReq);
-    if (requestedPaths > MAX_PATHS_ANONYMOUS) {
+    if (requestedPaths > env.MAX_PATHS_ANONYMOUS) {
       throw new PlanLimitError(
-        `paths ${requestedPaths} exceeds the anonymous limit of ${MAX_PATHS_ANONYMOUS}. ` +
+        `paths ${requestedPaths} exceeds the anonymous limit of ${env.MAX_PATHS_ANONYMOUS}. ` +
           'Create an account and upgrade your plan to run larger simulations.',
       );
     }
@@ -108,7 +106,7 @@ export async function simulationRoutes(
       config,
       inputHash,
       configHash,
-      engineVersion: ENGINE_VERSION,
+      engineVersion: env.ENGINE_VERSION,
       seed,
     };
 

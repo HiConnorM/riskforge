@@ -8,9 +8,5 @@
     "deps:down": "docker compose -f ops/docker-compose.yml down",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"
-  },
-  "dependencies": {
-    "bullmq": "^5.73.0",
-    "zod": "^4.3.6"
   }
 }

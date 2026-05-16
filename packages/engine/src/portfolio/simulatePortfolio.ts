@@ -29,7 +29,6 @@ import {
   quantile,
   computeVaR,
   computeES,
-  fractionBelow,
 } from '../core/statistics.js';
 import {
   cholesky,
@@ -213,9 +212,11 @@ export function simulatePortfolio(
   sortAsc(maxDrawdowns);
 
   const annualFactor = TRADING_DAYS_PER_YEAR / horizonDays;
+  const meanReturn = mean(finalReturns);
+  const meanSquaredReturn = meanOfSquares(finalReturns);
 
   const summary: PortfolioRiskResult['summary'] = {
-    meanReturn: mean(finalReturns),
+    meanReturn,
     medianReturn: quantile(finalReturns, 0.5),
     p05Return: quantile(finalReturns, 0.05),
     p01Return: quantile(finalReturns, 0.01),
@@ -223,27 +224,16 @@ export function simulatePortfolio(
     valueAtRisk99: computeVaR(finalReturns, 0.99),
     expectedShortfall95: computeES(finalReturns, 0.95),
     expectedShortfall99: computeES(finalReturns, 0.99),
-    probabilityDrawdownOver10: fractionBelow(maxDrawdowns, -0.10) === 0
-      ? 1 - fractionBelow(new Float64Array(Array.from(maxDrawdowns).map(v => -v)), 0.10)
-      : fractionBelow(maxDrawdowns, -0.10),
-    probabilityDrawdownOver20: 1 - fractionBelow(new Float64Array(Array.from(maxDrawdowns).map(v => 1 - v)), 0.80),
-    probabilityDrawdownOver30: 1 - fractionBelow(new Float64Array(Array.from(maxDrawdowns).map(v => 1 - v)), 0.70),
-    probabilityDrawdownOver50: 1 - fractionBelow(new Float64Array(Array.from(maxDrawdowns).map(v => 1 - v)), 0.50),
+    probabilityDrawdownOver10: fractionAbove(maxDrawdowns, 0.10),
+    probabilityDrawdownOver20: fractionAbove(maxDrawdowns, 0.20),
+    probabilityDrawdownOver30: fractionAbove(maxDrawdowns, 0.30),
+    probabilityDrawdownOver50: fractionAbove(maxDrawdowns, 0.50),
     medianMaxDrawdown: quantile(maxDrawdowns, 0.5),
     p95MaxDrawdown: quantile(maxDrawdowns, 0.95),
-    annualizedVolatility: Math.sqrt(annualFactor) *
-      Math.sqrt(
-        mean(new Float64Array(Array.from(finalReturns).map(r => r * r))) -
-        mean(finalReturns) ** 2,
-      ),
+    annualizedVolatility:
+      Math.sqrt(annualFactor) *
+      Math.sqrt(Math.max(0, meanSquaredReturn - meanReturn * meanReturn)),
   };
-
-  // Fix drawdown probability calculations (max drawdown is always >= 0).
-  const ddArr = maxDrawdowns; // already sorted ascending [0..maxDd]
-  summary.probabilityDrawdownOver10 = fractionAbove(ddArr, 0.10);
-  summary.probabilityDrawdownOver20 = fractionAbove(ddArr, 0.20);
-  summary.probabilityDrawdownOver30 = fractionAbove(ddArr, 0.30);
-  summary.probabilityDrawdownOver50 = fractionAbove(ddArr, 0.50);
 
   const meta: PortfolioRiskResult['meta'] = {
     paths,
@@ -256,12 +246,7 @@ export function simulatePortfolio(
     stressed,
   };
 
-  const partial = { summary, meta };
-  const interpretation = buildInterpretation(
-    partial as Omit<PortfolioRiskResult, 'interpretation'>,
-    input,
-    stressed,
-  );
+  const interpretation = buildInterpretation({ summary, meta }, input, stressed);
 
   return { summary, interpretation, meta };
 }
@@ -276,4 +261,13 @@ function fractionAbove(sortedAsc: Float64Array, threshold: number): number {
     else hi = mid;
   }
   return (sortedAsc.length - lo) / sortedAsc.length;
+}
+
+function meanOfSquares(arr: Float64Array): number {
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i] ?? 0;
+    sum += v * v;
+  }
+  return sum / arr.length;
 }

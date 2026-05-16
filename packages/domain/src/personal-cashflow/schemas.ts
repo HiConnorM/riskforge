@@ -44,5 +44,4 @@ export const PersonalSimulationRequestSchema = z.object({
   kind: z.literal('personal_cashflow_risk'),
   input: PersonalCashflowInputSchema,
   config: CashflowSimConfigSchema,
-  idempotencyKey: z.string().max(128).optional(),
 });

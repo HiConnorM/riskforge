@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { env } from '@riskforge/config';
 import { getCacheRedisClient } from '@riskforge/infra';
 
 export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/health', async (_req, reply) => {
-    // Shallow Redis liveness check.
     let redisOk = false;
     try {
       const pong = await getCacheRedisClient().ping();
@@ -17,7 +17,7 @@ export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
 
     return reply.code(statusCode).send({
       status,
-      version: process.env['ENGINE_VERSION'] ?? '1.0.0',
+      version: env.ENGINE_VERSION,
       timestamp: new Date().toISOString(),
       dependencies: {
         redis: redisOk ? 'ok' : 'unreachable',
