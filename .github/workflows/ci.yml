@@ -49,6 +49,31 @@ jobs:
             --filter @riskforge/worker \
             typecheck
 
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Run unit + integration tests. No Redis needed — infra is mocked.
+      - name: Test
+        run: pnpm test
+        env:
+          NODE_ENV: test
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

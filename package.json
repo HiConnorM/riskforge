@@ -6,6 +6,7 @@
     "dev": "pnpm -r dev",
     "deps:up": "docker compose -f ops/docker-compose.yml up -d",
     "deps:down": "docker compose -f ops/docker-compose.yml down",
+    "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"
   }
