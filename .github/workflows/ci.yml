@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref when a new commit arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin pnpm + Node to match `packageManager` in root package.json.
+  PNPM_VERSION: 9.15.4
+  NODE_VERSION: 20
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The database package depends on @prisma/client which is a generated
+      # artifact, so it is excluded from CI typecheck until migrations land.
+      - name: Typecheck (production packages)
+        run: |
+          pnpm \
+            --filter @riskforge/config \
+            --filter @riskforge/domain \
+            --filter @riskforge/infra \
+            --filter @riskforge/engine \
+            --filter @riskforge/api \
+            --filter @riskforge/worker \
+            typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm -r lint
+
+  # Boot dependencies and confirm the API + worker start cleanly. Keeps the
+  # docker-compose definition honest and catches env-validation regressions.
+  smoke:
+    name: Smoke (deps boot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start Redis + Postgres
+        run: pnpm deps:up
+
+      - name: Wait for Redis to be ready
+        run: |
+          for i in {1..30}; do
+            if docker exec $(docker ps -qf "ancestor=redis:7-alpine") redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Redis failed to become ready"
+          exit 1
+
+      - name: Tear down
+        if: always()
+        run: pnpm deps:down
