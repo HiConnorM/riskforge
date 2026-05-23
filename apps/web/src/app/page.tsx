@@ -206,7 +206,7 @@ export default function LandingPage() {
               variants={fadeUp}
               className="text-lg text-text-secondary leading-relaxed mb-8 max-w-lg"
             >
-              RiskForge turns financial uncertainty into a clear action plan — whether you're protecting a household budget or managing a $50M portfolio.
+              RiskForge turns financial uncertainty into a clear action plan — whether you&apos;re protecting a household budget or managing a $50M portfolio.
             </motion.p>
 
             <motion.div
@@ -339,7 +339,7 @@ export default function LandingPage() {
               One platform. Two modes.
             </h2>
             <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-              Whether you're protecting your household or managing institutional capital — RiskForge has a mode built for you.
+              Whether you&apos;re protecting your household or managing institutional capital — RiskForge has a mode built for you.
             </p>
           </motion.div>
 

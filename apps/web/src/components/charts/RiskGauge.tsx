@@ -56,7 +56,8 @@ export function RiskGauge({
       motionScore.set(score)
       dashOffset.set(targetOffset)
     }
-  }, [score, animated])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [score, animated]) // motionScore/dashOffset/targetOffset are stable motion values — intentionally excluded
 
   // Track gauge starts at bottom-left (225°) and goes clockwise 270°
   const rotation = 135 // rotate to start at bottom-left
