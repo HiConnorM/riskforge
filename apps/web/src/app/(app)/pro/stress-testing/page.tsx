@@ -5,14 +5,28 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, ReferenceLine,
 } from 'recharts'
-import { Activity, Play, ChevronDown, ChevronUp, TrendingDown, TrendingUp, Plus } from 'lucide-react'
+import { Activity, Play, ChevronDown, ChevronUp, TrendingDown, TrendingUp, Plus, BookOpen, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { stressTests, portfolioSummary } from '@/lib/mock-data/pro'
 import { portfolioHoldings } from '@/lib/mock-data/pro'
 import { useSimulation } from '@/hooks/useSimulation'
+import { SCENARIOS } from '@/lib/scenarios/definitions'
+import { toPortfolioRequest } from '@/lib/scenarios/to-request'
+import type { ScenarioDefinition } from '@/lib/scenarios/types'
+import { BUNDLES } from '@/lib/scenarios/bundles'
 import { formatCurrency, cn } from '@/lib/utils'
 import type { PortfolioRiskResult, PortfolioSimRequest, AssetInput } from '@/lib/api-client'
+
+// Scenarios with portfolio params (macro + market_portfolio)
+const MACRO_SCENARIOS = SCENARIOS.filter(
+  (s) =>
+    (s.group === 'macro_historical' || s.group === 'market_portfolio') &&
+    s.portfolioParams,
+)
+
+// Portfolio bundle IDs for the bundle gauntlet feature
+const PORTFOLIO_BUNDLES = BUNDLES.filter((b) => b.tier === 'pro')
 
 const defaultMuByClass: Record<string, number> = {
   equity: 0.08,
@@ -100,12 +114,18 @@ function buildStressRequest(scenarioId: ScenarioId, paths: number): PortfolioSim
 }
 
 export default function StressTestingPage() {
-  const [expanded, setExpanded] = useState<string>('st-001')
+  const [expanded, setExpanded]         = useState<string>('st-001')
   const [activeScenario, setActiveScenario] = useState<ScenarioId | null>(null)
-  const [paths, setPaths] = useState(20_000)
-  const [liveResults, setLiveResults] = useState<
-    Record<ScenarioId, PortfolioRiskResult | null>
-  >({} as Record<ScenarioId, PortfolioRiskResult | null>)
+  const [paths, setPaths]               = useState(20_000)
+  const [liveResults, setLiveResults]   = useState<Record<ScenarioId, PortfolioRiskResult | null>>(
+    {} as Record<ScenarioId, PortfolioRiskResult | null>,
+  )
+
+  // Macro scenario state
+  const [macroRunningId, setMacroRunningId]   = useState<string | null>(null)
+  const [macroResults, setMacroResults]       = useState<Record<string, PortfolioRiskResult>>({})
+  const [macroErrors, setMacroErrors]         = useState<Record<string, string>>({})
+  const [expandedMacro, setExpandedMacro]     = useState<string | null>(null)
 
   const sim = useSimulation<PortfolioRiskResult>({
     onSuccess: (result) => {
@@ -114,6 +134,41 @@ export default function StressTestingPage() {
       }
     },
   })
+
+  // Separate sim instance for macro scenarios to avoid conflict
+  const macroSim = useSimulation<PortfolioRiskResult>({
+    onSuccess: (result) => {
+      if (macroRunningId) {
+        setMacroResults((r) => ({ ...r, [macroRunningId]: result }))
+        setMacroRunningId(null)
+      }
+    },
+    onError: (err) => {
+      if (macroRunningId) {
+        setMacroErrors((e) => ({ ...e, [macroRunningId]: err.message }))
+        setMacroRunningId(null)
+      }
+    },
+  })
+
+  const runMacroScenario = useCallback(
+    (scenario: ScenarioDefinition) => {
+      const holdings = portfolioHoldings
+        .filter((h) => h.weight > 0)
+        .map((h) => ({
+          name: h.symbol,
+          weight: h.weight,
+          volatility: h.volatility,
+          assetClass: h.assetClass,
+        }))
+      const req = toPortfolioRequest(scenario, holdings, Math.min(paths, 20_000))
+      if (!req) return
+      setMacroRunningId(scenario.id)
+      setMacroErrors((e) => { const n = { ...e }; delete n[scenario.id]; return n })
+      macroSim.run(req)
+    },
+    [macroSim, paths],
+  )
 
   const runScenario = useCallback(
     (scenarioId: ScenarioId) => {
@@ -203,6 +258,20 @@ export default function StressTestingPage() {
           </Button>
         </div>
       </motion.div>
+
+      <Tabs defaultValue="custom">
+        <TabsList>
+          <TabsTrigger value="custom">
+            <Activity className="w-3.5 h-3.5 mr-1.5" />
+            Custom Scenarios
+          </TabsTrigger>
+          <TabsTrigger value="historical">
+            <BookOpen className="w-3.5 h-3.5 mr-1.5" />
+            Historical Events ({MACRO_SCENARIOS.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="custom" className="space-y-5 mt-4">
 
       {/* Running indicator */}
       {sim.isLoading && activeScenario && (
@@ -459,6 +528,189 @@ export default function StressTestingPage() {
           )
         })}
       </div>
+        </TabsContent>
+
+        {/* ── Historical Events tab ──────────────────────────────────────────── */}
+        <TabsContent value="historical" className="space-y-4 mt-4">
+          <p className="text-sm text-text-muted">
+            Real-world-inspired scenarios grounded in historical data. Each runs your current
+            portfolio through the stress parameters that characterized that event.
+          </p>
+
+          {/* Macro scenario running indicator */}
+          {macroSim.isLoading && macroRunningId && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex items-center gap-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20"
+            >
+              <Activity className="w-4 h-4 text-brand-400 animate-pulse" />
+              <span className="text-sm text-brand-300">
+                Running{' '}
+                <span className="font-semibold">
+                  {MACRO_SCENARIOS.find((s) => s.id === macroRunningId)?.name}
+                </span>{' '}
+                · {(macroSim.elapsedMs / 1000).toFixed(1)}s
+              </span>
+            </motion.div>
+          )}
+
+          <div className="space-y-3">
+            {MACRO_SCENARIOS.map((scenario, i) => {
+              const live   = macroResults[scenario.id]
+              const err    = macroErrors[scenario.id]
+              const isRunning = macroRunningId === scenario.id && macroSim.isLoading
+              const isExp  = expandedMacro === scenario.id
+              const params = scenario.portfolioParams!
+              const var99  = live ? live.summary.portfolioVaR99 * 100 : null
+
+              return (
+                <motion.div
+                  key={scenario.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  className={cn(
+                    'rounded-xl border overflow-hidden transition-colors',
+                    live
+                      ? 'border-red-500/20 bg-red-500/3'
+                      : 'border-white/[0.08] bg-white/[0.01]',
+                  )}
+                >
+                  {/* Header */}
+                  <button
+                    className="w-full flex items-center gap-4 p-4 text-left hover:bg-white/[0.02] transition-colors"
+                    onClick={() => setExpandedMacro(isExp ? null : scenario.id)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <h4 className="text-sm font-semibold text-text-primary">{scenario.name}</h4>
+                        <span className="text-2xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium capitalize">
+                          {scenario.severity}
+                        </span>
+                        <span className="text-2xs text-text-muted">
+                          {params.horizonDays}d horizon · {params.distribution}
+                          {params.df && ` df=${params.df}`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-text-muted line-clamp-1">{scenario.description}</p>
+                    </div>
+
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {live && (
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-red-400 tabular">
+                            {var99!.toFixed(2)}%
+                          </p>
+                          <p className="text-xs text-text-muted">VaR 99%</p>
+                        </div>
+                      )}
+                      {isRunning ? (
+                        <span className="text-xs text-brand-400 flex items-center gap-1">
+                          <Activity className="w-3.5 h-3.5 animate-pulse" />
+                          {(macroSim.elapsedMs / 1000).toFixed(1)}s
+                        </span>
+                      ) : (
+                        <Button
+                          variant={live ? 'secondary' : 'brand'}
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); runMacroScenario(scenario) }}
+                          disabled={macroSim.isLoading}
+                          className="text-xs"
+                        >
+                          <Play className="w-3 h-3 mr-1" />
+                          {live ? 'Re-run' : 'Simulate'}
+                        </Button>
+                      )}
+                      {isExp ? (
+                        <ChevronUp className="w-4 h-4 text-text-muted" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-text-muted" />
+                      )}
+                    </div>
+                  </button>
+
+                  {/* Expanded */}
+                  <AnimatePresence>
+                    {isExp && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="border-t border-white/[0.06] px-4 pb-4 pt-3"
+                      >
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-sm text-text-secondary leading-relaxed mb-3">
+                              {scenario.description}
+                            </p>
+                            {scenario.historicalRef && (
+                              <div className="flex items-start gap-2 text-xs text-text-muted bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.05] mb-3">
+                                <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-brand-400" />
+                                <span>{scenario.historicalRef}</span>
+                              </div>
+                            )}
+                            <div className="text-xs text-text-muted bg-white/[0.03] rounded-lg p-3">
+                              <p className="font-medium text-text-secondary mb-1">Model parameters</p>
+                              <p>{params.description}</p>
+                              <div className="flex gap-4 mt-2">
+                                <span>Stress factor: <strong className="text-red-400">{params.stressFactor}×</strong></span>
+                                <span>Target corr: <strong className="text-amber-400">{(params.targetCorr * 100).toFixed(0)}%</strong></span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {err && (
+                            <div className="text-xs text-red-400 bg-red-500/5 rounded-lg p-3 border border-red-500/20">
+                              {err}
+                            </div>
+                          )}
+
+                          {live && !err && (
+                            <div className="space-y-3">
+                              <p className="text-sm text-text-secondary leading-relaxed">
+                                {live.interpretation.summary}
+                              </p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {[
+                                  { label: 'VaR 95%', value: `${(live.summary.portfolioVaR95 * 100).toFixed(2)}%`, color: '#f59e0b' },
+                                  { label: 'VaR 99%', value: `${(live.summary.portfolioVaR99 * 100).toFixed(2)}%`, color: '#ef4444' },
+                                  { label: 'ES 95%', value: `${(live.summary.expectedShortfall95 * 100).toFixed(2)}%`, color: '#ef4444' },
+                                  { label: 'Max Drawdown', value: `${(live.summary.maxDrawdown * 100).toFixed(2)}%`, color: '#ef4444' },
+                                  { label: 'Sharpe', value: live.summary.sharpeRatio.toFixed(2), color: '#10b981' },
+                                  { label: 'Prob. Loss', value: `${(live.summary.probabilityOfLoss * 100).toFixed(1)}%`, color: '#f59e0b' },
+                                ].map((m) => (
+                                  <div key={m.label} className="bg-white/[0.03] rounded-lg p-2">
+                                    <p className="text-xs text-text-muted">{m.label}</p>
+                                    <p className="text-sm font-bold tabular" style={{ color: m.color }}>{m.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-xs text-text-muted">
+                                {live.meta.paths.toLocaleString()} paths · {live.meta.horizonDays}d · {live.meta.elapsedMs}ms
+                              </p>
+                            </div>
+                          )}
+
+                          {!live && !err && !isRunning && (
+                            <div className="flex items-center justify-center text-text-muted text-sm">
+                              <div className="text-center">
+                                <Play className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                <p>Simulate to see how your portfolio holds up</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              )
+            })}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

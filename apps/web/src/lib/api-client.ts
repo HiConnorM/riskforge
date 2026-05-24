@@ -119,22 +119,32 @@ export interface PortfolioRiskResult {
 
 export interface RiskEvent {
   name: string
+  /** Must match the domain RiskEventSchema category enum. */
   category:
-    | 'job_loss'
+    | 'car'
+    | 'pet'
     | 'medical'
-    | 'car_repair'
-    | 'home_repair'
-    | 'natural_disaster'
-    | 'divorce'
-    | 'disability'
-    | 'death_of_spouse'
-    | 'market_crash'
-    | 'legal'
+    | 'housing'
+    | 'food'
+    | 'shopping'
+    | 'job'
+    | 'family'
+    | 'utility'
+    | 'appliance'
     | 'other'
   probabilityPerMonth: number
   minCost: number
+  likelyCost?: number
   maxCost: number
   maxOccurrences?: number
+}
+
+export interface IncomeShock {
+  name: string
+  probabilityPerYear: number
+  incomeFractionLost: number
+  durationMonthsMin: number
+  durationMonthsMax: number
 }
 
 export interface CashflowSimRequest {
@@ -148,6 +158,7 @@ export interface CashflowSimRequest {
     riskEvents: RiskEvent[]
     emergencyThreshold?: number
     inflationRate?: number
+    incomeShocks?: IncomeShock[]
   }
   config: {
     paths: number

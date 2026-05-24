@@ -169,7 +169,7 @@ export default function BudgetStressTestPage() {
     if (activeShock === 'car_repair') {
       riskEvents.push({
         name: 'Car repair',
-        category: 'car_repair',
+        category: 'car',
         probabilityPerMonth: 0.08,
         minCost: 1500,
         maxCost: 6000,
@@ -180,7 +180,7 @@ export default function BudgetStressTestPage() {
     if (activeShock === 'job_loss') {
       riskEvents.push({
         name: 'Job loss',
-        category: 'job_loss',
+        category: 'job',
         probabilityPerMonth: 1 / 3,  // ~1 occurrence over 3-month horizon
         minCost: shocked.income * 2,
         maxCost: shocked.income * 4,
