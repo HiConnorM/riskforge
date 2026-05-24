@@ -24,6 +24,18 @@ export const PortfolioSimConfigSchema = z.object({
   df: z.number().int().min(3).max(100).optional(),
   seed: z.number().int().optional(),
   stress: StressConfigSchema.optional(),
+  garchParams: z.object({
+    alpha: z.number().gt(0).lt(1),
+    beta: z.number().gt(0).lt(1),
+  }).optional(),
+  jumps: z.object({
+    lambda: z.number().gt(0).lte(50),
+    muJ: z.number().gte(-0.5).lte(0.1),
+    sigmaJ: z.number().gt(0).lte(0.5),
+  }).optional(),
+  computeFrontier: z.boolean().default(false).optional(),
+  antitheticVariates: z.boolean().default(false).optional(),
+  useGarch: z.boolean().default(false).optional(),
 });
 
 export const PortfolioRiskInputSchema = z

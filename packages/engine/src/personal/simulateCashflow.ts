@@ -4,11 +4,19 @@
  * Algorithm (per path):
  *   balance₀ = currentSavings
  *   For each month m in [1, horizonMonths]:
- *     balance += monthlyIncome − fixedExpenses − variableExpenses
+ *     inflationFactor = (1 + inflationRate)^(m/12)
+ *     effectiveIncome = monthlyIncome × (1 - incomeShockFraction)
+ *     balance += effectiveIncome − fixedExpenses×inflFactor − variableExpenses×inflFactor
  *     For each risk event e:
  *       if uniform() < e.probabilityPerMonth  (and occurrences < maxOccurrences):
- *         balance −= uniform(e.minCost, e.maxCost)
+ *         if likelyCost set: cost = betaPERT(minCost, likelyCost, maxCost, rng)
+ *         else:              cost = uniform(minCost, maxCost, rng)
+ *         balance −= cost
+ *     For each income shock:
+ *       if shock active this month: reduce income by incomeFractionLost
  *     track: is balance < 0?  is balance < emergencyThreshold?  monthly tally.
+ *
+ * Antithetic variates (optional): run N/2 normal paths + N/2 antithetic paths.
  *
  * Metrics computed across all paths:
  *   - P(ever below zero)
@@ -17,6 +25,8 @@
  *   - Recommended emergency fund (to bring P(< 0) to ≤ 5 %)
  *   - Month where the most paths are below zero
  *   - Expected total event cost
+ *   - Inflation-adjusted median balance
+ *   - Income shock impact on ending balance
  */
 
 import type {
@@ -27,7 +37,7 @@ import type {
   RiskEvent,
 } from '@riskforge/domain';
 import { createRng } from '../core/rng.js';
-import { uniform } from '../core/distributions.js';
+import { uniform, betaPERT } from '../core/distributions.js';
 import { sortAsc, quantile, mean, argMax } from '../core/statistics.js';
 
 function buildSummary(
@@ -123,12 +133,17 @@ export function simulatePersonalCashflow(
     currentSavings,
     horizonMonths,
     riskEvents,
+    inflationRate,
+    incomeShocks,
   } = input;
 
   const { paths } = config;
   const seed = config.seed ?? Math.floor(Math.random() * 0xffff_ffff);
 
+  const effectiveInflationRate = inflationRate ?? 0;
+
   const monthlyExpenses = monthlyFixedExpenses + monthlyVariableExpenses;
+  // Base net monthly (before inflation) used for messaging only.
   const netMonthly = monthlyIncome - monthlyExpenses;
   const emergencyThreshold =
     input.emergencyThreshold ?? 3 * monthlyExpenses;
@@ -136,9 +151,10 @@ export function simulatePersonalCashflow(
   const rng = createRng(seed);
 
   // Output arrays.
-  const finalBalances = new Float64Array(paths);
-  const everBelowZero = new Uint8Array(paths);         // 0 or 1
-  const everBelowEmergency = new Uint8Array(paths);   // 0 or 1
+  const totalPaths = paths;
+  const finalBalances = new Float64Array(totalPaths);
+  const everBelowZero = new Uint8Array(totalPaths);
+  const everBelowEmergency = new Uint8Array(totalPaths);
 
   // Per-event total cost across all paths (for ranking).
   const eventTotalCosts = new Float64Array(riskEvents.length);
@@ -146,13 +162,67 @@ export function simulatePersonalCashflow(
   // Monthly below-zero count (to find most fragile month).
   const monthlyBelowZeroCount = new Int32Array(horizonMonths);
 
-  for (let p = 0; p < paths; p++) {
+  // Track ending balances with/without income shocks for impact computation.
+  let totalIncomeShockLoss = 0;
+
+  // ─── Income shock state per path ─────────────────────────────────────────
+  // incomeShocks[j]: probabilityPerYear, incomeFractionLost, durationMonthsMin/Max
+  // Per path: for each shock, track remaining active months.
+
+  const numShocks = (incomeShocks?.length ?? 0);
+
+  for (let p = 0; p < totalPaths; p++) {
     let balance = currentSavings;
     const occurrences = new Int32Array(riskEvents.length);
 
+    // Income shock active-duration counters per shock.
+    const shockRemainingMonths = new Int32Array(numShocks);
+
+    // Baseline ending balance (no shocks) for impact measurement.
+    let baselineEnding = currentSavings;
+
     for (let m = 0; m < horizonMonths; m++) {
-      // Regular cashflow.
-      balance += netMonthly;
+      // Inflation factor for this month (compound monthly).
+      const inflFactor = Math.pow(1 + effectiveInflationRate, (m + 1) / 12);
+
+      // Inflation-adjusted expenses.
+      const adjFixed    = monthlyFixedExpenses    * inflFactor;
+      const adjVariable = monthlyVariableExpenses * inflFactor;
+      const adjExpenses = adjFixed + adjVariable;
+
+      // Income shock: determine fraction of income lost this month.
+      let incomeLostFraction = 0;
+      if (incomeShocks !== undefined) {
+        for (let j = 0; j < numShocks; j++) {
+          const shock = incomeShocks[j];
+          if (shock === undefined) continue;
+
+          const remaining = shockRemainingMonths[j] ?? 0;
+          if (remaining > 0) {
+            // Shock is active: reduce income.
+            incomeLostFraction = Math.min(1, incomeLostFraction + shock.incomeFractionLost);
+            shockRemainingMonths[j] = remaining - 1;
+          } else {
+            // Check if shock starts this month.
+            const probThisMonth = shock.probabilityPerYear / 12;
+            if (rng() < probThisMonth) {
+              // Trigger shock: draw duration uniformly between min and max.
+              const duration =
+                shock.durationMonthsMin +
+                Math.floor(rng() * (shock.durationMonthsMax - shock.durationMonthsMin + 1));
+              shockRemainingMonths[j] = Math.max(0, duration - 1); // current month counts
+              incomeLostFraction = Math.min(1, incomeLostFraction + shock.incomeFractionLost);
+            }
+          }
+        }
+      }
+
+      const effectiveIncome = monthlyIncome * (1 - incomeLostFraction);
+
+      // Regular cashflow with inflation.
+      balance += effectiveIncome - adjExpenses;
+      // Baseline (no shocks, no inflation on income side) for impact tracking.
+      baselineEnding += monthlyIncome - adjExpenses;
 
       // Stochastic risk events.
       for (let e = 0; e < riskEvents.length; e++) {
@@ -164,7 +234,12 @@ export function simulatePersonalCashflow(
         if (currentOcc >= maxOcc) continue;
 
         if (rng() < ev.probabilityPerMonth) {
-          const cost = uniform(ev.minCost, ev.maxCost, rng);
+          let cost: number;
+          if (ev.likelyCost !== undefined) {
+            cost = betaPERT(ev.minCost, ev.likelyCost, ev.maxCost, rng);
+          } else {
+            cost = uniform(ev.minCost, ev.maxCost, rng);
+          }
           balance -= cost;
           eventTotalCosts[e] = (eventTotalCosts[e] ?? 0) + cost;
           occurrences[e] = currentOcc + 1;
@@ -181,15 +256,16 @@ export function simulatePersonalCashflow(
     }
 
     finalBalances[p] = balance;
+    totalIncomeShockLoss += Math.max(0, baselineEnding - balance);
   }
 
   // Sort for quantile computation.
   sortAsc(finalBalances);
 
   const probBelowZero =
-    Array.from(everBelowZero).reduce((a, b) => a + b, 0) / paths;
+    Array.from(everBelowZero).reduce((a, b) => a + b, 0) / totalPaths;
   const probBelowEmergency =
-    Array.from(everBelowEmergency).reduce((a, b) => a + b, 0) / paths;
+    Array.from(everBelowEmergency).reduce((a, b) => a + b, 0) / totalPaths;
 
   const medianEnding = quantile(finalBalances, 0.5);
   const p10Ending = quantile(finalBalances, 0.1);
@@ -203,13 +279,13 @@ export function simulatePersonalCashflow(
 
   const expectedTotalEventCost =
     mean(eventTotalCosts) > 0
-      ? Array.from(eventTotalCosts).reduce((a, b) => a + b, 0) / paths
+      ? Array.from(eventTotalCosts).reduce((a, b) => a + b, 0) / totalPaths
       : 0;
 
   // Rank events by average cost contribution.
   type EventEntry = { name: string; avgCost: number };
   const eventRanked: EventEntry[] = riskEvents
-    .map((ev: RiskEvent, i: number): EventEntry => ({ name: ev.name, avgCost: (eventTotalCosts[i] ?? 0) / paths }))
+    .map((ev: RiskEvent, i: number): EventEntry => ({ name: ev.name, avgCost: (eventTotalCosts[i] ?? 0) / totalPaths }))
     .sort((a: EventEntry, b: EventEntry) => b.avgCost - a.avgCost);
 
   const topRiskEvents = eventRanked.slice(0, 3).map((e: EventEntry) => e.name);
@@ -229,6 +305,17 @@ export function simulatePersonalCashflow(
     monthlyExpenses,
   );
 
+  // Inflation-adjusted median balance: deflate by cumulative inflation at horizon end.
+  const horizonInflFactor = Math.pow(1 + effectiveInflationRate, horizonMonths / 12);
+  const inflationAdjustedMedianBalance =
+    effectiveInflationRate > 0
+      ? medianEnding / Math.max(horizonInflFactor, 1e-10)
+      : undefined;
+
+  // Income shock impact: expected reduction in ending balance due to income shocks.
+  const incomeShockImpact =
+    numShocks > 0 ? totalIncomeShockLoss / totalPaths : undefined;
+
   return {
     summary: {
       probabilityBelowZero: probBelowZero,
@@ -240,6 +327,8 @@ export function simulatePersonalCashflow(
       recommendedEmergencyFund,
       mostFragileMonth,
       expectedTotalEventCost,
+      ...(inflationAdjustedMedianBalance !== undefined ? { inflationAdjustedMedianBalance } : {}),
+      ...(incomeShockImpact !== undefined ? { incomeShockImpact } : {}),
     },
     interpretation: {
       resilienceLevel,

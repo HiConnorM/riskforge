@@ -37,6 +37,8 @@ export type PersonalCashflowResult = {
     recommendedEmergencyFund: number;
     mostFragileMonth: number;
     expectedTotalEventCost: number;
+    inflationAdjustedMedianBalance?: number | undefined;
+    incomeShockImpact?: number | undefined;
   };
   interpretation: {
     resilienceLevel: ResilienceLevel;

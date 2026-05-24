@@ -58,4 +58,26 @@ export type PortfolioRiskResult = {
     elapsedMs: number;
     stressed: boolean;
   };
+  attribution: {
+    componentVaR95: number[];
+    componentVaR99: number[];
+    percentContributions95: number[];
+    percentContributions99: number[];
+    marginalVaR95: number[];
+    diversificationBenefit95: number;
+  };
+  frontier?: {
+    points: Array<{
+      targetReturn: number;
+      portfolioVol: number;
+      weights: number[];
+      sharpeRatio: number;
+    }>;
+    minVarianceWeights: number[];
+    maxSharpeWeights: number[];
+    minVarianceVol: number;
+    minVarianceReturn: number;
+    maxSharpeReturn: number;
+    maxSharpeVol: number;
+  } | undefined;
 };

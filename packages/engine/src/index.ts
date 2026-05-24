@@ -1,5 +1,14 @@
 export { createRng, randomSeed } from './core/rng.js';
-export { normalPair, fillNormals, applyStudentTScale, uniform } from './core/distributions.js';
+export { createAntitheticPair } from './core/antitheticRng.js';
+export {
+  normalPair,
+  fillNormals,
+  applyStudentTScale,
+  uniform,
+  betaPERT,
+  lognormalSample,
+  pertToLognormal,
+} from './core/distributions.js';
 export {
   quantile,
   mean,
@@ -16,6 +25,18 @@ export {
   stressCorrelation,
   CholeskyError,
 } from './portfolio/cholesky.js';
+export {
+  initGarchState,
+  updateGarchState,
+  DEFAULT_GARCH_EQUITY,
+  DEFAULT_GARCH_CRYPTO,
+  DEFAULT_GARCH_BOND,
+} from './portfolio/garch.js';
+export type { GarchParams, GarchState } from './portfolio/garch.js';
+export { computeAttribution } from './portfolio/attribution.js';
+export type { RiskAttribution } from './portfolio/attribution.js';
+export { computeEfficientFrontier } from './portfolio/frontier.js';
+export type { FrontierPoint, EfficientFrontier } from './portfolio/frontier.js';
 export {
   simulatePortfolio,
   SimulationError,

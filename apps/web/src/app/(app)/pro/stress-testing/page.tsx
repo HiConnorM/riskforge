@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, ReferenceLine,
@@ -9,23 +9,149 @@ import { Activity, Play, ChevronDown, ChevronUp, TrendingDown, TrendingUp, Plus 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { stressTests, portfolioSummary } from '@/lib/mock-data/pro'
+import { portfolioHoldings } from '@/lib/mock-data/pro'
+import { useSimulation } from '@/hooks/useSimulation'
 import { formatCurrency, cn } from '@/lib/utils'
+import type { PortfolioRiskResult, PortfolioSimRequest, AssetInput } from '@/lib/api-client'
+
+const defaultMuByClass: Record<string, number> = {
+  equity: 0.08,
+  'fixed-income': 0.04,
+  crypto: 0.20,
+  commodities: 0.05,
+  cash: 0.04,
+  alternatives: 0.07,
+}
+
+/** Stress scenario definitions — map to API stress parameters. */
+const STRESS_SCENARIOS = [
+  {
+    id: 'gfc',
+    name: '2008 Global Financial Crisis',
+    description: 'Severe credit contraction, interbank freeze, correlated equity selloff.',
+    factor: 3.5,
+    targetCorr: 0.85,
+    horizonDays: 252,
+  },
+  {
+    id: 'dot-com',
+    name: '2000 Dot-com Crash',
+    description: 'Tech sector implosion, prolonged bear market over 30 months.',
+    factor: 2.8,
+    targetCorr: 0.70,
+    horizonDays: 63,
+  },
+  {
+    id: 'covid',
+    name: 'COVID-19 Crash (Mar 2020)',
+    description: 'Sudden liquidity shock, 34% peak-to-trough in 33 days.',
+    factor: 4.0,
+    targetCorr: 0.90,
+    horizonDays: 21,
+  },
+  {
+    id: 'rate-shock',
+    name: '2022 Rate Shock',
+    description: 'Aggressive Fed hiking cycle, equity/bond correlation turns positive.',
+    factor: 2.0,
+    targetCorr: 0.60,
+    horizonDays: 252,
+  },
+  {
+    id: 'mild',
+    name: 'Mild Correction (-15%)',
+    description: 'Normal market correction, typical risk-off environment.',
+    factor: 1.5,
+    targetCorr: 0.55,
+    horizonDays: 21,
+  },
+] as const
+
+type ScenarioId = (typeof STRESS_SCENARIOS)[number]['id']
+
+function buildStressRequest(scenarioId: ScenarioId, paths: number): PortfolioSimRequest {
+  const scenario = STRESS_SCENARIOS.find((s) => s.id === scenarioId)!
+  const active = portfolioHoldings.filter((h) => h.weight > 0)
+  const totalWeight = active.reduce((s, h) => s + h.weight, 0)
+
+  const assets: AssetInput[] = active.map((h) => ({
+    name: h.symbol,
+    weight: h.weight / totalWeight,
+    mu: defaultMuByClass[h.assetClass] ?? 0.06,
+    sigma: Math.max(h.volatility / 100, 0.001),
+  }))
+
+  const n = assets.length
+  const corr = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)),
+  )
+
+  return {
+    kind: 'portfolio_risk',
+    input: { assets, corr },
+    config: {
+      paths,
+      horizonDays: scenario.horizonDays,
+      distribution: 'student_t',
+      df: 4,
+      stress: { factor: scenario.factor, targetCorr: scenario.targetCorr },
+    },
+  }
+}
 
 export default function StressTestingPage() {
   const [expanded, setExpanded] = useState<string>('st-001')
-  const [running, setRunning] = useState(false)
+  const [activeScenario, setActiveScenario] = useState<ScenarioId | null>(null)
+  const [paths, setPaths] = useState(20_000)
+  const [liveResults, setLiveResults] = useState<
+    Record<ScenarioId, PortfolioRiskResult | null>
+  >({} as Record<ScenarioId, PortfolioRiskResult | null>)
 
-  const runTest = async () => {
-    setRunning(true)
-    await new Promise(r => setTimeout(r, 2000))
-    setRunning(false)
-  }
+  const sim = useSimulation<PortfolioRiskResult>({
+    onSuccess: (result) => {
+      if (activeScenario) {
+        setLiveResults((prev) => ({ ...prev, [activeScenario]: result }))
+      }
+    },
+  })
 
-  const chartData = stressTests.map(t => ({
-    name: t.name.split(' ').slice(0, 2).join(' '),
-    impact: t.portfolioImpactPct,
-    value: t.portfolioImpact,
-  }))
+  const runScenario = useCallback(
+    (scenarioId: ScenarioId) => {
+      setActiveScenario(scenarioId)
+      sim.run(buildStressRequest(scenarioId, paths))
+    },
+    [sim, paths],
+  )
+
+  const runAll = useCallback(async () => {
+    // Run scenarios sequentially (can't parallelise — one API connection).
+    for (const scenario of STRESS_SCENARIOS) {
+      setActiveScenario(scenario.id)
+      await new Promise<void>((resolve) => {
+        sim.run(buildStressRequest(scenario.id, Math.min(paths, 10_000)))
+        // Poll until done — hacky but works without saga infrastructure.
+        const tid = setInterval(() => {
+          if (sim.status === 'done' || sim.status === 'error') {
+            clearInterval(tid)
+            resolve()
+          }
+        }, 200)
+      })
+    }
+  }, [sim, paths])
+
+  // Use static stressTests for the accordion/chart, but overlay live data if available.
+  const chartData = STRESS_SCENARIOS.map((s) => {
+    const live = liveResults[s.id]
+    return {
+      name: s.name.split(' ').slice(0, 2).join(' '),
+      id: s.id,
+      impact: live
+        ? -(live.summary.portfolioVaR99 * 100)
+        : stressTests.find((t) => t.id === 'st-' + (STRESS_SCENARIOS.indexOf(s) + 1).toString().padStart(3, '0'))?.portfolioImpactPct ?? -10,
+      isLive: !!live,
+    }
+  })
 
   return (
     <div className="p-6 space-y-5 max-w-[1300px]">
@@ -36,19 +162,72 @@ export default function StressTestingPage() {
       >
         <div>
           <h2 className="text-xl font-semibold text-text-primary">Stress Testing</h2>
-          <p className="text-sm text-text-muted">Replay historical crises and custom scenarios against your portfolio</p>
+          <p className="text-sm text-text-muted">
+            Replay historical crises and custom scenarios against your portfolio
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* Paths selector */}
+          <div className="flex gap-1">
+            {[
+              { label: '5k', n: 5_000 },
+              { label: '20k', n: 20_000 },
+              { label: '50k', n: 50_000 },
+            ].map((p) => (
+              <button
+                key={p.label}
+                onClick={() => setPaths(p.n)}
+                className={cn(
+                  'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                  paths === p.n
+                    ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+                    : 'text-text-muted border-white/[0.07]',
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <Button variant="secondary" size="sm">
             <Plus className="w-4 h-4 mr-1.5" />
             Custom Scenario
           </Button>
-          <Button variant="brand" size="sm" onClick={runTest} disabled={running}>
-            <Play className={cn('w-4 h-4 mr-1.5', running && 'animate-pulse')} />
-            {running ? 'Running...' : 'Run All Tests'}
+          <Button
+            variant="brand"
+            size="sm"
+            onClick={runAll}
+            disabled={sim.isLoading}
+          >
+            <Play className={cn('w-4 h-4 mr-1.5', sim.isLoading && 'animate-pulse')} />
+            {sim.isLoading ? 'Running…' : 'Run All Tests'}
           </Button>
         </div>
       </motion.div>
+
+      {/* Running indicator */}
+      {sim.isLoading && activeScenario && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center gap-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20"
+        >
+          <Activity className="w-4 h-4 text-brand-400 animate-pulse" />
+          <span className="text-sm text-brand-300">
+            Running{' '}
+            <span className="font-semibold">
+              {STRESS_SCENARIOS.find((s) => s.id === activeScenario)?.name}
+            </span>{' '}
+            · {(sim.elapsedMs / 1000).toFixed(1)}s
+          </span>
+        </motion.div>
+      )}
+
+      {/* Error state */}
+      {sim.status === 'error' && (
+        <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20 text-sm text-red-400">
+          {sim.error}
+        </div>
+      )}
 
       {/* Summary chart */}
       <motion.div
@@ -57,21 +236,40 @@ export default function StressTestingPage() {
         transition={{ delay: 0.05 }}
         className="card-base rounded-xl p-5"
       >
-        <h3 className="text-sm font-semibold text-text-primary mb-4">Scenario Impact Overview</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-text-primary">Scenario Impact Overview</h3>
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <span className="w-2 h-2 rounded-full bg-brand-500 inline-block" />
+            Live simulation
+            <span className="w-2 h-2 rounded-full bg-slate-600 inline-block ml-2" />
+            Estimated
+          </div>
+        </div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
               <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
               <ReferenceLine y={0} stroke="rgba(255,255,255,0.12)" />
               <Tooltip
                 contentStyle={{ background: '#1e2535', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: '11px', color: '#f1f5f9' }}
-                formatter={(v: number) => [`${v.toFixed(1)}%`, 'Impact']}
+                formatter={(v: number) => [`${v.toFixed(1)}%`, 'VaR 99% impact']}
               />
               <Bar dataKey="impact" radius={[4, 4, 0, 0]} maxBarSize={48}>
                 {chartData.map((entry, i) => (
-                  <Cell key={i} fill={entry.impact < 0 ? '#ef4444' : '#10b981'} />
+                  <Cell
+                    key={i}
+                    fill={
+                      entry.isLive
+                        ? entry.impact < 0
+                          ? '#ef4444'
+                          : '#10b981'
+                        : entry.impact < 0
+                        ? '#4b5563'
+                        : '#374151'
+                    }
+                  />
                 ))}
               </Bar>
             </BarChart>
@@ -79,56 +277,95 @@ export default function StressTestingPage() {
         </div>
       </motion.div>
 
-      {/* Individual tests */}
+      {/* Individual scenario cards */}
       <div className="space-y-4">
-        {stressTests.map((test, i) => {
-          const isExpanded = expanded === test.id
-          const isNegative = test.portfolioImpactPct < 0
+        {STRESS_SCENARIOS.map((scenario, i) => {
+          const live = liveResults[scenario.id]
+          const isExpanded = expanded === scenario.id
+          const isRunning = sim.isLoading && activeScenario === scenario.id
+          const var99Pct = live ? -(live.summary.portfolioVaR99 * 100) : null
+          const isNegative = (var99Pct ?? -1) < 0
 
           return (
             <motion.div
-              key={test.id}
+              key={scenario.id}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.06 }}
               className={cn(
                 'rounded-xl border overflow-hidden transition-all',
-                isNegative ? 'border-red-500/20 bg-red-500/3' : 'border-emerald-500/20 bg-emerald-500/3'
+                live
+                  ? isNegative
+                    ? 'border-red-500/20 bg-red-500/3'
+                    : 'border-emerald-500/20 bg-emerald-500/3'
+                  : 'border-white/[0.08] bg-white/[0.01]',
               )}
             >
               <button
                 className="w-full flex items-center justify-between p-5 text-left hover:bg-white/[0.02] transition-colors"
-                onClick={() => setExpanded(isExpanded ? '' : test.id)}
+                onClick={() => setExpanded(isExpanded ? '' : scenario.id)}
               >
                 <div className="flex items-center gap-4">
-                  <div className={cn(
-                    'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
-                    isNegative ? 'bg-red-500/15 border border-red-500/25' : 'bg-emerald-500/15 border border-emerald-500/25'
-                  )}>
-                    {isNegative
-                      ? <TrendingDown className="w-5 h-5 text-red-400" />
-                      : <TrendingUp className="w-5 h-5 text-emerald-400" />
-                    }
+                  <div
+                    className={cn(
+                      'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
+                      live
+                        ? isNegative
+                          ? 'bg-red-500/15 border border-red-500/25'
+                          : 'bg-emerald-500/15 border border-emerald-500/25'
+                        : 'bg-white/[0.05] border border-white/[0.08]',
+                    )}
+                  >
+                    {isRunning ? (
+                      <Activity className="w-5 h-5 text-brand-400 animate-pulse" />
+                    ) : live ? (
+                      isNegative ? (
+                        <TrendingDown className="w-5 h-5 text-red-400" />
+                      ) : (
+                        <TrendingUp className="w-5 h-5 text-emerald-400" />
+                      )
+                    ) : (
+                      <Play className="w-5 h-5 text-text-muted" />
+                    )}
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold text-text-primary">{test.name}</h4>
-                    <p className="text-xs text-text-muted">{test.probability}</p>
+                    <h4 className="text-sm font-semibold text-text-primary">{scenario.name}</h4>
+                    <p className="text-xs text-text-muted">{scenario.description}</p>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className={cn('text-lg font-bold tabular', isNegative ? 'text-red-400' : 'text-emerald-400')}>
-                      {isNegative ? '' : '+'}{test.portfolioImpactPct.toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-text-muted tabular">
-                      {formatCurrency(test.portfolioImpact, { compact: true })}
-                    </p>
-                  </div>
-                  {isExpanded ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
+                  {live ? (
+                    <div className="text-right">
+                      <p className={cn('text-lg font-bold tabular', isNegative ? 'text-red-400' : 'text-emerald-400')}>
+                        {var99Pct!.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-text-muted">VaR 99% · {scenario.horizonDays}d</p>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        runScenario(scenario.id)
+                      }}
+                      disabled={sim.isLoading}
+                      className="text-xs"
+                    >
+                      <Play className="w-3.5 h-3.5 mr-1.5" />
+                      Run
+                    </Button>
+                  )}
+                  {isExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-text-muted" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-text-muted" />
+                  )}
                 </div>
               </button>
 
-              {isExpanded && (
+              {isExpanded && live && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
@@ -137,51 +374,85 @@ export default function StressTestingPage() {
                 >
                   <div className="grid md:grid-cols-2 gap-5">
                     <div>
-                      <p className="text-sm text-text-secondary mb-3 leading-relaxed">{test.description}</p>
-                      <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 mb-3">
-                        <p className="text-xs font-semibold text-text-muted mb-1">Scenario conditions</p>
-                        <p className="text-xs text-text-secondary">{test.scenario}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <p className="text-xs text-text-muted mb-1">Best performer</p>
-                          <p className="text-sm font-semibold text-emerald-400">{test.bestHolding}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-text-muted mb-1">Worst performer</p>
-                          <p className="text-sm font-semibold text-red-400">{test.worstHolding}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Holdings Impact</p>
-                      <div className="space-y-2">
-                        {test.holdingsImpact.map(h => (
-                          <div key={h.symbol} className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-text-secondary w-16">{h.symbol}</span>
-                            <div className="flex-1 mx-3">
-                              <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full"
-                                  style={{
-                                    width: `${Math.min(100, Math.abs(h.impactPct))}%`,
-                                    background: h.impactPct < 0 ? '#ef4444' : '#10b981',
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            <span className={cn('text-xs font-bold tabular w-16 text-right', h.impactPct < 0 ? 'text-red-400' : 'text-emerald-400')}>
-                              {h.impactPct > 0 ? '+' : ''}{h.impactPct.toFixed(1)}%
-                            </span>
-                            <span className={cn('text-xs tabular ml-2 w-20 text-right', h.impact < 0 ? 'text-red-400/70' : 'text-emerald-400/70')}>
-                              {formatCurrency(h.impact, { compact: true })}
-                            </span>
+                      <p className="text-sm text-text-secondary mb-3 leading-relaxed">
+                        {live.interpretation.summary}
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 mt-4">
+                        {[
+                          { label: 'VaR 95%', value: `${(live.summary.portfolioVaR95 * 100).toFixed(2)}%`, color: '#f59e0b' },
+                          { label: 'VaR 99%', value: `${(live.summary.portfolioVaR99 * 100).toFixed(2)}%`, color: '#ef4444' },
+                          { label: 'ES 95%', value: `${(live.summary.expectedShortfall95 * 100).toFixed(2)}%`, color: '#ef4444' },
+                          { label: 'Max Drawdown', value: `${(live.summary.maxDrawdown * 100).toFixed(2)}%`, color: '#ef4444' },
+                          { label: 'Sharpe', value: live.summary.sharpeRatio.toFixed(2), color: '#10b981' },
+                          { label: 'Prob. Loss', value: `${(live.summary.probabilityOfLoss * 100).toFixed(1)}%`, color: '#f59e0b' },
+                        ].map((m) => (
+                          <div key={m.label} className="card-base rounded-lg p-3">
+                            <p className="text-xs text-text-muted">{m.label}</p>
+                            <p className="text-base font-bold tabular" style={{ color: m.color }}>
+                              {m.value}
+                            </p>
                           </div>
                         ))}
                       </div>
                     </div>
+
+                    <div>
+                      {live.interpretation.drivers.length > 0 && (
+                        <>
+                          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
+                            Risk Drivers
+                          </p>
+                          <ul className="space-y-2">
+                            {live.interpretation.drivers.map((d, di) => (
+                              <li key={di} className="flex items-start gap-2 text-sm text-text-secondary">
+                                <span className="text-red-400 mt-0.5">•</span>
+                                {d}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                      <p className="text-xs text-text-muted mt-4">
+                        {live.meta.paths.toLocaleString()} paths · {live.meta.distribution} ·{' '}
+                        {live.meta.elapsedMs}ms
+                      </p>
+                    </div>
                   </div>
+                </motion.div>
+              )}
+
+              {isExpanded && !live && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  transition={{ duration: 0.25 }}
+                  className="border-t border-white/[0.06] px-5 pb-5 pt-4"
+                >
+                  <p className="text-sm text-text-muted mb-3">{scenario.description}</p>
+                  <div className="flex gap-2">
+                    <div className="text-xs text-text-muted">
+                      <span className="text-text-secondary font-medium">Stress factor:</span>{' '}
+                      {scenario.factor}×
+                    </div>
+                    <div className="text-xs text-text-muted ml-4">
+                      <span className="text-text-secondary font-medium">Target correlation:</span>{' '}
+                      {(scenario.targetCorr * 100).toFixed(0)}%
+                    </div>
+                    <div className="text-xs text-text-muted ml-4">
+                      <span className="text-text-secondary font-medium">Horizon:</span>{' '}
+                      {scenario.horizonDays}d
+                    </div>
+                  </div>
+                  <Button
+                    variant="brand"
+                    size="sm"
+                    onClick={() => runScenario(scenario.id)}
+                    disabled={sim.isLoading}
+                    className="mt-4"
+                  >
+                    <Play className="w-3.5 h-3.5 mr-1.5" />
+                    Run this scenario
+                  </Button>
                 </motion.div>
               )}
             </motion.div>

@@ -20,6 +20,7 @@ export const RiskEventSchema = z
     minCost: z.number().gte(0),
     maxCost: z.number().gt(0),
     maxOccurrences: z.number().int().min(1).optional(),
+    likelyCost: z.number().gt(0).optional(),
   })
   .refine((e) => e.maxCost >= e.minCost, {
     message: 'maxCost must be >= minCost',
@@ -33,6 +34,14 @@ export const PersonalCashflowInputSchema = z.object({
   horizonMonths: z.number().int().min(1).max(60),
   riskEvents: z.array(RiskEventSchema).max(20),
   emergencyThreshold: z.number().gte(0).optional(),
+  inflationRate: z.number().gte(0).lte(0.2).default(0).optional(),
+  incomeShocks: z.array(z.object({
+    name: z.string().min(1).max(100),
+    probabilityPerYear: z.number().gt(0).lte(1),
+    incomeFractionLost: z.number().gt(0).lte(1),
+    durationMonthsMin: z.number().int().min(1).max(24),
+    durationMonthsMax: z.number().int().min(1).max(60),
+  })).max(5).optional(),
 });
 
 export const CashflowSimConfigSchema = z.object({
