@@ -71,6 +71,13 @@ export class PlanLimitError extends AppError {
   }
 }
 
+export class QueueFullError extends AppError {
+  constructor(message = 'Service is under high load. Please retry in a few seconds.') {
+    super('QUEUE_FULL', message, 503);
+    this.name = 'QueueFullError';
+  }
+}
+
 export class InternalError extends AppError {
   constructor(message = 'An unexpected error occurred') {
     super('INTERNAL_ERROR', message, 500);

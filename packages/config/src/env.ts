@@ -15,6 +15,16 @@ const EnvSchema = z.object({
   MAX_PATHS_ENTERPRISE: z.coerce.number().int().default(5_000_000),
   // result TTL in Redis
   RESULT_TTL_SECONDS: z.coerce.number().int().default(86_400),
+
+  // ── API security ────────────────────────────────────────────────────────────
+  // Comma-separated list of allowed CORS origins (exact match only).
+  ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
+  // Max requests per window for anonymous callers.
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(30),
+  // Window length in milliseconds (default: 1 minute).
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).default(60_000),
+  // Return 503 if this many jobs are already waiting in the queue.
+  QUEUE_MAX_WAITING: z.coerce.number().int().min(10).default(500),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -32,6 +32,7 @@ export type AppErrorCode =
   | 'NOT_FOUND'
   | 'RATE_LIMITED'
   | 'PLAN_LIMIT_EXCEEDED'
+  | 'QUEUE_FULL'
   | 'JOB_NOT_FOUND'
   | 'JOB_FAILED'
   | 'SIMULATION_TIMEOUT'

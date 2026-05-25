@@ -11,7 +11,7 @@ import { env } from '@riskforge/config';
 import { PortfolioRiskInputSchema, PortfolioSimConfigSchema } from '@riskforge/domain';
 import type { PortfolioRiskResult } from '@riskforge/domain';
 import { simulatePortfolio, SimulationError } from '@riskforge/engine';
-import { resultCache, logger } from '@riskforge/infra';
+import { resultCache, contentHashCache, logger } from '@riskforge/infra';
 
 interface PortfolioJobData {
   kind: 'portfolio_risk';
@@ -73,8 +73,12 @@ export async function processPortfolioRisk(job: Job): Promise<PortfolioRiskResul
   // Signal progress: 100 % complete.
   await job.updateProgress(100);
 
-  // Write to Redis cache so the API can serve it immediately.
+  // Write to Redis cache under the real jobId so the API can serve it immediately.
   await resultCache.set(job.id!, result, env.RESULT_TTL_SECONDS);
+
+  // Also write under the content-hash synthetic ID so future requests with
+  // identical inputs are served from cache without creating a new job.
+  await contentHashCache.set(data.inputHash, data.configHash, result, env.RESULT_TTL_SECONDS);
 
   logger.info(
     {

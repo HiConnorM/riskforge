@@ -12,4 +12,5 @@ export {
   cacheExists,
   idempotency,
   resultCache,
+  contentHashCache,
 } from './cache.js';

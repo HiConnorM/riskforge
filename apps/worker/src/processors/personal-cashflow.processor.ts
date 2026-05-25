@@ -9,7 +9,7 @@ import { env } from '@riskforge/config';
 import { PersonalCashflowInputSchema, CashflowSimConfigSchema } from '@riskforge/domain';
 import type { PersonalCashflowResult } from '@riskforge/domain';
 import { simulatePersonalCashflow } from '@riskforge/engine';
-import { resultCache, logger } from '@riskforge/infra';
+import { resultCache, contentHashCache, logger } from '@riskforge/infra';
 
 interface CashflowJobData {
   kind: 'personal_cashflow_risk';
@@ -58,6 +58,9 @@ export async function processPersonalCashflow(job: Job): Promise<PersonalCashflo
   await job.updateProgress(100);
 
   await resultCache.set(job.id!, result, env.RESULT_TTL_SECONDS);
+
+  // Also write under the content-hash synthetic ID for future deduplication.
+  await contentHashCache.set(data.inputHash, data.configHash, result, env.RESULT_TTL_SECONDS);
 
   logger.info(
     {

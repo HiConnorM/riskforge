@@ -6,13 +6,15 @@
  */
 
 import { env } from '@riskforge/config';
-import { createSimQueue, logger } from '@riskforge/infra';
+import { createSimQueue, getCacheRedisClient, logger } from '@riskforge/infra';
 import { buildApp } from './app.js';
 
 const HOST = process.env['HOST'] ?? '0.0.0.0';
 
 const queue = createSimQueue();
-const app = buildApp(queue);
+// Pass the shared cache client so rate-limit counters are shared across all
+// API instances behind the load balancer.
+const app = buildApp(queue, { rateLimitRedis: getCacheRedisClient() });
 
 async function start(): Promise<void> {
   try {

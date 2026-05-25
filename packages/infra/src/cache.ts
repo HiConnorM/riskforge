@@ -93,3 +93,38 @@ export const resultCache = {
     return cacheSet('result', jobId, result, ttlSeconds);
   },
 };
+
+/**
+ * Content-hash result cache.
+ *
+ * Stores simulation results keyed by a deterministic ID derived from the
+ * SHA-256 hashes of the simulation's input and config.  Two requests with
+ * identical inputs will share the same cached result, avoiding redundant
+ * computation even when they arrive with different BullMQ job IDs.
+ *
+ * The synthetic ID is stored in the same `riskforge:result:` namespace so
+ * the existing `/result/:id` endpoint serves it without any changes — the
+ * client polls once and finds the result immediately.
+ *
+ * Format: `ch_<inputHash[0..23]>_<configHash[0..7]>`
+ * Example: `ch_a3f9b2e1d408c7f4e90c125d_3fa8c12e`
+ */
+export const contentHashCache = {
+  /** Deterministic synthetic job ID derived from content hashes. */
+  syntheticId(inputHash: string, configHash: string): string {
+    return `ch_${inputHash.slice(0, 24)}_${configHash.slice(0, 8)}`;
+  },
+
+  async get<T>(inputHash: string, configHash: string): Promise<T | null> {
+    return cacheGet<T>('result', this.syntheticId(inputHash, configHash));
+  },
+
+  async set(
+    inputHash: string,
+    configHash: string,
+    result: unknown,
+    ttlSeconds = DEFAULT_TTL_SECONDS,
+  ): Promise<void> {
+    return cacheSet('result', this.syntheticId(inputHash, configHash), result, ttlSeconds);
+  },
+};

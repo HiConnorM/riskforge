@@ -18,6 +18,11 @@ vi.mock('@riskforge/infra', () => ({
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn().mockResolvedValue(undefined),
   },
+  contentHashCache: {
+    syntheticId: vi.fn().mockReturnValue('ch_test000000000000000000_testtest'),
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue(undefined),
+  },
   logger: {
     info:  vi.fn(),
     warn:  vi.fn(),
@@ -25,7 +30,9 @@ vi.mock('@riskforge/infra', () => ({
     debug: vi.fn(),
     child: vi.fn().mockReturnThis(),
   },
-  // Health route calls getCacheRedisClient().ping() — return a mock that resolves 'PONG'
+  // Health route calls getCacheRedisClient().ping() — return a mock that resolves 'PONG'.
+  // @fastify/rate-limit will attempt to use this client; skipOnError: true means
+  // any failures are swallowed, so tests proceed without a real Redis connection.
   getCacheRedisClient: vi.fn().mockReturnValue({
     ping: vi.fn().mockResolvedValue('PONG'),
   }),
@@ -35,7 +42,7 @@ vi.mock('@riskforge/infra', () => ({
 }));
 
 import { buildApp } from './app.js';
-import { idempotency, resultCache } from '@riskforge/infra';
+import { idempotency, resultCache, contentHashCache } from '@riskforge/infra';
 
 // ─── Mock Queue factory ───────────────────────────────────────────────────────
 
@@ -43,6 +50,8 @@ function makeMockQueue(overrides: Record<string, unknown> = {}): Queue {
   return {
     add: vi.fn().mockResolvedValue({ id: 'job-test-1' }),
     getJob: vi.fn().mockResolvedValue(null),
+    // Default to 0 waiting jobs so queue depth guard never triggers in tests.
+    getWaitingCount: vi.fn().mockResolvedValue(0),
     ...overrides,
   } as unknown as Queue;
 }
@@ -374,5 +383,90 @@ describe('GET /v1/simulations/:id/result', () => {
     expect(res.statusCode).toBe(422);
     const body = JSON.parse(res.body) as Record<string, unknown>;
     expect((body['error'] as Record<string, unknown>)['code']).toBe('JOB_FAILED');
+  });
+});
+
+// ─── POST /v1/simulations — queue depth guard ─────────────────────────────────
+
+describe('POST /v1/simulations — queue depth guard', () => {
+  it('returns 503 when the queue waiting count is at or above QUEUE_MAX_WAITING', async () => {
+    // Default QUEUE_MAX_WAITING env default is 500; mock waiting = 500 → triggers guard.
+    const queue = makeMockQueue({
+      getWaitingCount: vi.fn().mockResolvedValue(500),
+    });
+    const app = buildApp(queue);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/simulations',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(validPortfolioBody),
+    });
+
+    expect(res.statusCode).toBe(503);
+    const body = JSON.parse(res.body) as Record<string, unknown>;
+    expect((body['error'] as Record<string, unknown>)['code']).toBe('QUEUE_FULL');
+    // Should NOT have called queue.add
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('proceeds normally when queue depth is below the ceiling', async () => {
+    const queue = makeMockQueue({
+      getWaitingCount: vi.fn().mockResolvedValue(499),
+    });
+    const app = buildApp(queue);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/simulations',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(validPortfolioBody),
+    });
+
+    expect(res.statusCode).toBe(202);
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── POST /v1/simulations — content-hash deduplication ───────────────────────
+
+describe('POST /v1/simulations — content-hash deduplication', () => {
+  it('returns 200 with cached: true when content hash matches a previous result', async () => {
+    const cachedResult = { summary: { probabilityBelowZero: 0.1 } };
+    vi.mocked(contentHashCache.get).mockResolvedValueOnce(cachedResult);
+
+    const queue = makeMockQueue();
+    const app = buildApp(queue);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/simulations',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(validCashflowBody),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as Record<string, unknown>;
+    expect(body['cached']).toBe(true);
+    expect(typeof body['jobId']).toBe('string');
+    // No new job should have been created.
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('creates a new job when content hash has no prior result', async () => {
+    vi.mocked(contentHashCache.get).mockResolvedValueOnce(null);
+
+    const queue = makeMockQueue();
+    const app = buildApp(queue);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/simulations',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(validPortfolioBody),
+    });
+
+    expect(res.statusCode).toBe(202);
+    expect(queue.add).toHaveBeenCalledTimes(1);
   });
 });

@@ -12,6 +12,8 @@
     "lint": "echo \"api: no lint yet\""
   },
   "dependencies": {
+    "@fastify/cors": "^8.5.0",
+    "@fastify/rate-limit": "^9.1.0",
     "@riskforge/config": "workspace:*",
     "@riskforge/domain": "workspace:*",
     "@riskforge/infra": "workspace:*",
