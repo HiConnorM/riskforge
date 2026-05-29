@@ -444,7 +444,7 @@ export default function StressTestingPage() {
                   <div className="grid md:grid-cols-2 gap-5">
                     <div>
                       <p className="text-sm text-text-secondary mb-3 leading-relaxed">
-                        {live.interpretation.summary}
+                        {live.interpretation.plainEnglishSummary}
                       </p>
                       <div className="grid grid-cols-2 gap-3 mt-4">
                         {[
@@ -670,7 +670,7 @@ export default function StressTestingPage() {
                           {live && !err && (
                             <div className="space-y-3">
                               <p className="text-sm text-text-secondary leading-relaxed">
-                                {live.interpretation.summary}
+                                {live.interpretation.plainEnglishSummary}
                               </p>
                               <div className="grid grid-cols-3 gap-2">
                                 {[

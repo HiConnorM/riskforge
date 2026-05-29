@@ -93,7 +93,7 @@ export interface PortfolioRiskResult {
   interpretation: {
     riskLevel: 'low' | 'medium' | 'high' | 'critical'
     drivers: string[]
-    summary: string
+    plainEnglishSummary: string
     stressImpact?: string
   }
   meta: {
@@ -170,18 +170,20 @@ export interface CashflowRiskResult {
   summary: {
     probabilityBelowZero: number
     probabilityBelowEmergencyThreshold: number
-    medianEndBalance: number
-    meanEndBalance: number
-    worstCaseBalance: number
-    bestCaseBalance: number
+    medianEndingBalance: number
+    p10EndingBalance: number
+    p05EndingBalance: number
+    worstCaseEndingBalance: number
+    recommendedEmergencyFund: number
     expectedTotalEventCost: number
     mostFragileMonth: number
-    monthsToDepletionP50: number
+    inflationAdjustedMedianBalance?: number
+    incomeShockImpact?: number
   }
   interpretation: {
     resilienceLevel: 'stable' | 'watch' | 'fragile' | 'critical'
     topRiskEvents: string[]
-    summary: string
+    plainEnglishSummary: string
     suggestedActions: string[]
   }
   meta: {
@@ -204,11 +206,11 @@ async function request<T>(
   let res: Response
   try {
     res = await fetch(url, {
+      ...init,
       headers: {
         'content-type': 'application/json',
         ...(init?.headers as Record<string, string>),
       },
-      ...init,
     })
   } catch (cause) {
     throw new ApiError(

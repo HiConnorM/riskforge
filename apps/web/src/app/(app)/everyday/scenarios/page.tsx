@@ -220,7 +220,7 @@ function ScenarioRow({
                     className="text-sm leading-relaxed"
                     style={{ color: resilienceColor(result.interpretation.resilienceLevel) }}
                   >
-                    {result.interpretation.summary}
+                    {result.interpretation.plainEnglishSummary}
                   </p>
 
                   <div className="grid grid-cols-3 gap-2">
@@ -232,8 +232,8 @@ function ScenarioRow({
                       },
                       {
                         label: 'Median balance',
-                        value: formatCurrency(result.summary.medianEndBalance, { compact: true }),
-                        color: result.summary.medianEndBalance > 0 ? '#10b981' : '#ef4444',
+                        value: formatCurrency(result.summary.medianEndingBalance, { compact: true }),
+                        color: result.summary.medianEndingBalance > 0 ? '#10b981' : '#ef4444',
                       },
                       {
                         label: 'Event cost',

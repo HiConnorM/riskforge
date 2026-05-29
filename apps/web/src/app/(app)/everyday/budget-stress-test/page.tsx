@@ -461,7 +461,7 @@ export default function BudgetStressTestPage() {
                 </div>
 
                 <p className="text-sm text-text-secondary mb-4 leading-relaxed">
-                  {r.interpretation.summary}
+                  {r.interpretation.plainEnglishSummary}
                 </p>
 
                 <div className="grid grid-cols-3 gap-3 mb-4">
@@ -478,17 +478,14 @@ export default function BudgetStressTestPage() {
                     },
                     {
                       label: 'Median End Balance',
-                      value: formatCurrency(r.summary.medianEndBalance, { compact: true }),
-                      color: r.summary.medianEndBalance > 0 ? '#10b981' : '#ef4444',
+                      value: formatCurrency(r.summary.medianEndingBalance, { compact: true }),
+                      color: r.summary.medianEndingBalance > 0 ? '#10b981' : '#ef4444',
                     },
                     {
-                      label: 'P50 Months to Zero',
-                      value:
-                        r.summary.monthsToDepletionP50 >= 60
-                          ? `>${months}mo`
-                          : `${r.summary.monthsToDepletionP50.toFixed(0)}mo`,
+                      label: 'Most Fragile Month',
+                      value: r.summary.mostFragileMonth > 0 ? `Mo ${r.summary.mostFragileMonth}` : 'None',
                       color:
-                        r.summary.monthsToDepletionP50 < months
+                        r.summary.mostFragileMonth > 0 && r.summary.mostFragileMonth < months
                           ? '#ef4444'
                           : '#10b981',
                     },

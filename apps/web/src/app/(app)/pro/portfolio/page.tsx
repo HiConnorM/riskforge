@@ -469,7 +469,7 @@ export default function PortfolioPage() {
                   )}
                 >
                   <p className="text-text-secondary leading-relaxed">
-                    {r.interpretation.summary}
+                    {r.interpretation.plainEnglishSummary}
                   </p>
                 </div>
 
