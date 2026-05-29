@@ -1,6 +1,7 @@
 import { Queue } from 'bullmq';
 
-export const SIM_QUEUE_NAME = 'riskforge:sims';
+// BullMQ v5+ disallows colons in queue names (conflicts with Redis key namespacing).
+export const SIM_QUEUE_NAME = 'riskforge-sims';
 
 /**
  * Create the simulation job queue.
