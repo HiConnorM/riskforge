@@ -34,7 +34,8 @@ export const PersonalCashflowInputSchema = z.object({
   horizonMonths: z.number().int().min(1).max(60),
   riskEvents: z.array(RiskEventSchema).max(20),
   emergencyThreshold: z.number().gte(0).optional(),
-  inflationRate: z.number().gte(0).lte(0.2).default(0).optional(),
+  // Annualised. Mild deflation allowed — CPI went negative in 2008-09.
+  inflationRate: z.number().gte(-0.05).lte(0.2).default(0).optional(),
   incomeShocks: z.array(z.object({
     name: z.string().min(1).max(100),
     probabilityPerYear: z.number().gt(0).lte(1),

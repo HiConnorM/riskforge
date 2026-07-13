@@ -80,7 +80,7 @@ function buildPortfolioRequest(
       horizonDays,
       distribution: 'normal',
       ...(stressed
-        ? { stress: { factor: 2.5, targetCorr: 0.75 } }
+        ? { stress: { volMultiplier: 2.5, corrTarget: 0.75 } }
         : {}),
     },
   }
@@ -121,7 +121,9 @@ export default function PortfolioPage() {
   const [sortKey, setSortKey] = useState<keyof (typeof portfolioHoldings)[0]>('weight')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [horizonDays, setHorizonDays] = useState(21)
-  const [paths, setPaths] = useState(10_000)
+  // Default within MAX_PATHS_ANONYMOUS (5k) — the API 402s anonymous requests
+  // above it. Raise once real auth + plan tiers exist.
+  const [paths, setPaths] = useState(5_000)
   const [stressed, setStressed] = useState(false)
 
   const sim = useSimulation<PortfolioRiskResult>()
@@ -460,11 +462,11 @@ export default function PortfolioPage() {
                     'rounded-xl p-4 border text-sm',
                     r.interpretation.riskLevel === 'low' &&
                       'bg-emerald-500/5 border-emerald-500/20',
-                    r.interpretation.riskLevel === 'medium' &&
+                    r.interpretation.riskLevel === 'moderate' &&
                       'bg-amber-500/5 border-amber-500/20',
                     r.interpretation.riskLevel === 'high' &&
                       'bg-orange-500/5 border-orange-500/20',
-                    r.interpretation.riskLevel === 'critical' &&
+                    r.interpretation.riskLevel === 'severe' &&
                       'bg-red-500/5 border-red-500/20',
                   )}
                 >
@@ -477,18 +479,18 @@ export default function PortfolioPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <ResultMetric
                     label={`VaR 95% (${horizonDays}d)`}
-                    value={`${(r.summary.portfolioVaR95 * 100).toFixed(2)}%`}
+                    value={`${(r.summary.valueAtRisk95 * 100).toFixed(2)}%`}
                     color="#f59e0b"
                     sub={formatCurrency(
-                      portfolioSummary.totalValue * r.summary.portfolioVaR95,
+                      portfolioSummary.totalValue * r.summary.valueAtRisk95,
                     )}
                   />
                   <ResultMetric
                     label={`VaR 99% (${horizonDays}d)`}
-                    value={`${(r.summary.portfolioVaR99 * 100).toFixed(2)}%`}
+                    value={`${(r.summary.valueAtRisk99 * 100).toFixed(2)}%`}
                     color="#f97316"
                     sub={formatCurrency(
-                      portfolioSummary.totalValue * r.summary.portfolioVaR99,
+                      portfolioSummary.totalValue * r.summary.valueAtRisk99,
                     )}
                   />
                   <ResultMetric
@@ -498,26 +500,26 @@ export default function PortfolioPage() {
                     sub="Average tail loss"
                   />
                   <ResultMetric
-                    label="Max Drawdown"
-                    value={`${(r.summary.maxDrawdown * 100).toFixed(2)}%`}
+                    label="Median Max Drawdown"
+                    value={`${(r.summary.medianMaxDrawdown * 100).toFixed(2)}%`}
                     color="#ef4444"
-                    sub="Worst path"
+                    sub="50th-percentile path"
                   />
                   <ResultMetric
                     label="Annualised Vol"
-                    value={`${(r.summary.portfolioVolatility * 100).toFixed(1)}%`}
+                    value={`${(r.summary.annualizedVolatility * 100).toFixed(1)}%`}
                     color="#4f8ef7"
                   />
                   <ResultMetric
-                    label="Sharpe Ratio"
-                    value={r.summary.sharpeRatio.toFixed(2)}
-                    color={r.summary.sharpeRatio >= 1 ? '#10b981' : '#f59e0b'}
-                    sub="Risk-free: 4.5%"
+                    label="P95 Max Drawdown"
+                    value={`${(r.summary.p95MaxDrawdown * 100).toFixed(2)}%`}
+                    color="#ef4444"
+                    sub="Tail-path drawdown"
                   />
                   <ResultMetric
-                    label="Prob. of Loss"
-                    value={`${(r.summary.probabilityOfLoss * 100).toFixed(1)}%`}
-                    color={r.summary.probabilityOfLoss > 0.4 ? '#ef4444' : '#f59e0b'}
+                    label="P(Drawdown > 20%)"
+                    value={`${(r.summary.probabilityDrawdownOver20 * 100).toFixed(1)}%`}
+                    color={r.summary.probabilityDrawdownOver20 > 0.25 ? '#ef4444' : '#f59e0b'}
                   />
                   <ResultMetric
                     label="Median Return"
@@ -531,16 +533,16 @@ export default function PortfolioPage() {
                 {r.attribution && (
                   <div className="card-base rounded-xl p-5">
                     <h3 className="text-sm font-semibold text-text-primary mb-4">
-                      Risk Attribution (Component VaR 95%)
+                      Expected Shortfall Attribution (95%)
                     </h3>
                     <div className="space-y-3">
                       {portfolioHoldings
                         .filter((h) => h.weight > 0)
                         .map((h, i) => {
                           const contrib =
-                            r.attribution?.percentContributions95[i] ?? 0
-                          const cvар =
-                            r.attribution?.componentVaR95[i] ?? 0
+                            r.attribution?.expectedShortfallContributions95[i] ?? 0
+                          const componentES =
+                            r.attribution?.componentExpectedShortfall95[i] ?? 0
                           return (
                             <div key={h.symbol} className="flex items-center gap-3">
                               <span className="text-sm font-medium text-text-secondary w-16">
@@ -561,7 +563,7 @@ export default function PortfolioPage() {
                                   {(contrib * 100).toFixed(1)}%
                                 </p>
                                 <p className="text-2xs text-text-muted tabular">
-                                  CVaR: {(cvар * 100).toFixed(2)}%
+                                  ES: {(componentES * 100).toFixed(2)}%
                                 </p>
                               </div>
                             </div>
@@ -579,13 +581,13 @@ export default function PortfolioPage() {
                 )}
 
                 {/* Risk drivers */}
-                {r.interpretation.drivers.length > 0 && (
+                {r.interpretation.mainRiskDrivers.length > 0 && (
                   <div className="card-base rounded-xl p-4">
                     <h3 className="text-sm font-semibold text-text-primary mb-3">
                       Key Risk Drivers
                     </h3>
                     <ul className="space-y-2">
-                      {r.interpretation.drivers.map((d, i) => (
+                      {r.interpretation.mainRiskDrivers.map((d, i) => (
                         <li key={i} className="flex items-start gap-2 text-sm text-text-secondary">
                           <span className="text-brand-400 mt-0.5">•</span>
                           {d}

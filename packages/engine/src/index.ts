@@ -33,7 +33,7 @@ export {
   DEFAULT_GARCH_BOND,
 } from './portfolio/garch.js';
 export type { GarchParams, GarchState } from './portfolio/garch.js';
-export { computeAttribution } from './portfolio/attribution.js';
+export { computeExpectedShortfallAttribution } from './portfolio/attribution.js';
 export type { RiskAttribution } from './portfolio/attribution.js';
 export { computeEfficientFrontier } from './portfolio/frontier.js';
 export type { FrontierPoint, EfficientFrontier } from './portfolio/frontier.js';

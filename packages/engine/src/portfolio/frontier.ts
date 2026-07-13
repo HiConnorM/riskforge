@@ -1,7 +1,15 @@
 /**
- * Efficient frontier computation via projected gradient descent (mean-variance).
+ * ⚠️ EXPERIMENTAL — Efficient frontier via projected gradient descent.
  *
- * For each target return r, we solve the constrained QP:
+ * Known limitations (do not use as a production optimizer):
+ *   - Hardcoded 4.5% risk-free rate (RISK_FREE_RATE below).
+ *   - Penalized projected gradient descent, not an exact constrained QP
+ *     solver — no convergence or constraint-residual reporting.
+ *   - Long-only, fully-invested constraints only.
+ * A well-tested quadratic-programming implementation should replace this
+ * before any optimization feature ships.
+ *
+ * For each target return r, we approximately solve the constrained QP:
  *   min  w^T Σ w
  *   s.t. w^T μ = r
  *        Σ w_i = 1

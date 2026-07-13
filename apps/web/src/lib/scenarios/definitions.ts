@@ -2397,7 +2397,7 @@ export const SCENARIOS: ScenarioDefinition[] = [
       targetCorr: 0.95,
       horizonDays: 21,
       distribution: 'student_t',
-      df: 2,
+      df: 3, // engine minimum — Student-t below df 3 has infinite variance
       description: 'Maximum tail risk. Ultra-fat tails. All correlations approach 1. Only true safe havens (physical gold, T-bills, USD) provide any protection. Option hedges pay off dramatically.',
     },
   },

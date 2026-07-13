@@ -14,6 +14,11 @@ RiskForge runs two families of stochastic simulations:
 
 The engine is pure TypeScript, fully seeded, and deterministic — same input + same seed always produces identical output, which is required for reproducibility and audit.
 
+> **Status:** RiskForge is in active development and not production-ready.
+> Simulations are provided for educational and analytical use and are **not
+> investment advice**. See [Roadmap](#roadmap) for an honest account of what
+> is live versus demo.
+
 ---
 
 ## Table of contents
@@ -376,22 +381,45 @@ Status as of this commit. Tracked in detail in [`docs/progress.md`](docs/progres
 ### Done
 
 - [x] Pure engine (portfolio + personal cashflow), seeded and reproducible
+- [x] Expected Shortfall attribution (Euler / conditional-tail-mean allocation) with invariant tests
 - [x] Fastify API with Zod validation, idempotency, structured errors
 - [x] BullMQ worker with non-retryable error handling
 - [x] Redis result cache with TTL
 - [x] Centralized env validation
+- [x] Vitest suites: engine (incl. quantitative invariants), domain schemas, web↔API contract tests
+- [x] Next.js web app (Everyday + Pro) with **live** simulation flows: Everyday
+      scenarios, budget stress test, Pro portfolio risk, Pro stress testing
+- [x] Single shared contract: `apps/web` imports request/result types from
+      `@riskforge/domain` — no duplicated interfaces
 - [x] CI: typecheck + lint + smoke
 
-### Next (Phase 3)
+### Current limitations (read before trusting a number)
 
-- [ ] Prisma migrations + persistence layer wired into API/worker
-- [ ] Test suite (Vitest) with engine reproducibility tests + API integration tests
+- **Auth is a mock.** Login redirects on a timer; `NEXT_PUBLIC_BYPASS_AUTH=true`
+  bypasses middleware in dev. Must be replaced with real auth before deployment.
+- **No persistence.** Results live in Redis and expire. The Prisma schema exists
+  but is not wired into the API or worker.
+- **Pro runs on demo data.** Holdings are mocked, the correlation matrix is
+  identity, and expected returns are asset-class assumptions — fine for demos,
+  not for real risk reporting.
+- **Scenario probabilities are estimates**, not calibrated to sourced data. The
+  displayed annual probability and the engine trigger probability are not yet
+  reconciled on all scenarios.
+- **Efficient frontier is experimental** (penalized gradient descent, hardcoded
+  4.5% risk-free rate) — not a production optimizer.
+- **Pricing/billing pages describe planned tiers.** No billing exists.
+
+### Next
+
+- [ ] Prisma migrations + persistence wired into API/worker; Redis becomes cache only
+- [ ] Real authentication + ownership checks on job/result endpoints
+- [ ] Scenario calibration: conditional vs probabilistic modes, sourced probabilities, versioning
+- [ ] Real user profiles and CSV portfolio import (retire `DEFAULT_PROFILE` and demo holdings)
+- [ ] Market-data foundation (security master, EOD prices, point-in-time discipline)
+- [ ] Factor risk model → QP-based optimization (replaces experimental frontier)
 - [ ] `scripts/bench.ts` — engine throughput benchmark
-- [ ] Web frontend (Next.js)
-- [ ] Authentication (Clerk or Supabase) + per-plan rate limiting
 - [ ] Stripe billing
-- [ ] Dockerfiles for `apps/api` and `apps/worker`, deploy to Fly.io / Railway
-- [ ] Observability: OpenTelemetry traces from API → worker → engine
+- [ ] Dockerfiles + deploy, OpenTelemetry traces API → worker → engine
 
 ---
 

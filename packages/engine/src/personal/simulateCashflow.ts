@@ -22,11 +22,12 @@
  *   - P(ever below zero)
  *   - P(ever below emergency threshold)
  *   - Median / p10 / p05 ending balance
- *   - Recommended emergency fund (to bring P(< 0) to ≤ 5 %)
+ *   - Recommended emergency fund: additional cash so that ≤ 5 % of paths ever
+ *     dip below zero at ANY month (5th pct of per-path MINIMUM balance)
  *   - Month where the most paths are below zero
  *   - Expected total event cost
  *   - Inflation-adjusted median balance
- *   - Income shock impact on ending balance
+ *   - Expected income lost to income shocks (tracked directly per month)
  */
 
 import type {
@@ -162,8 +163,13 @@ export function simulatePersonalCashflow(
   // Monthly below-zero count (to find most fragile month).
   const monthlyBelowZeroCount = new Int32Array(horizonMonths);
 
-  // Track ending balances with/without income shocks for impact computation.
+  // Expected income lost to income shocks, accumulated directly each month so
+  // the metric is not confounded with risk-event costs or inflation.
   let totalIncomeShockLoss = 0;
+
+  // Per-path minimum balance — the emergency-fund recommendation must cover
+  // intra-horizon dips, not just the ending balance.
+  const minBalances = new Float64Array(totalPaths);
 
   // ─── Income shock state per path ─────────────────────────────────────────
   // incomeShocks[j]: probabilityPerYear, incomeFractionLost, durationMonthsMin/Max
@@ -173,13 +179,12 @@ export function simulatePersonalCashflow(
 
   for (let p = 0; p < totalPaths; p++) {
     let balance = currentSavings;
+    let minBalance = balance;
+    let pathShockLoss = 0;
     const occurrences = new Int32Array(riskEvents.length);
 
     // Income shock active-duration counters per shock.
     const shockRemainingMonths = new Int32Array(numShocks);
-
-    // Baseline ending balance (no shocks) for impact measurement.
-    let baselineEnding = currentSavings;
 
     for (let m = 0; m < horizonMonths; m++) {
       // Inflation factor for this month (compound monthly).
@@ -218,11 +223,10 @@ export function simulatePersonalCashflow(
       }
 
       const effectiveIncome = monthlyIncome * (1 - incomeLostFraction);
+      pathShockLoss += monthlyIncome - effectiveIncome;
 
       // Regular cashflow with inflation.
       balance += effectiveIncome - adjExpenses;
-      // Baseline (no shocks, no inflation on income side) for impact tracking.
-      baselineEnding += monthlyIncome - adjExpenses;
 
       // Stochastic risk events.
       for (let e = 0; e < riskEvents.length; e++) {
@@ -246,6 +250,7 @@ export function simulatePersonalCashflow(
         }
       }
 
+      if (balance < minBalance) minBalance = balance;
       if (balance < 0) {
         everBelowZero[p] = 1;
         monthlyBelowZeroCount[m] = (monthlyBelowZeroCount[m] ?? 0) + 1;
@@ -256,11 +261,13 @@ export function simulatePersonalCashflow(
     }
 
     finalBalances[p] = balance;
-    totalIncomeShockLoss += Math.max(0, baselineEnding - balance);
+    minBalances[p] = minBalance;
+    totalIncomeShockLoss += pathShockLoss;
   }
 
   // Sort for quantile computation.
   sortAsc(finalBalances);
+  sortAsc(minBalances);
 
   const probBelowZero =
     Array.from(everBelowZero).reduce((a, b) => a + b, 0) / totalPaths;
@@ -272,8 +279,12 @@ export function simulatePersonalCashflow(
   const p05Ending = quantile(finalBalances, 0.05);
   const worstCase = finalBalances[0] ?? 0;
 
-  // Recommended emergency fund: amount needed to shift p05 to >= 0.
-  const recommendedEmergencyFund = Math.max(0, Math.ceil(-p05Ending / 100) * 100);
+  // Recommended emergency fund: additional cash such that ~95% of paths never
+  // go below zero at ANY point in the horizon. Uses the 5th percentile of the
+  // per-path MINIMUM balance — a path can go negative in month 4 and recover
+  // by month 12, which the ending balance alone would miss.
+  const p05MinBalance = quantile(minBalances, 0.05);
+  const recommendedEmergencyFund = Math.max(0, Math.ceil(-p05MinBalance / 100) * 100);
 
   const mostFragileMonth = argMax(monthlyBelowZeroCount) + 1; // 1-indexed
 
@@ -308,11 +319,12 @@ export function simulatePersonalCashflow(
   // Inflation-adjusted median balance: deflate by cumulative inflation at horizon end.
   const horizonInflFactor = Math.pow(1 + effectiveInflationRate, horizonMonths / 12);
   const inflationAdjustedMedianBalance =
-    effectiveInflationRate > 0
+    effectiveInflationRate !== 0
       ? medianEnding / Math.max(horizonInflFactor, 1e-10)
       : undefined;
 
-  // Income shock impact: expected reduction in ending balance due to income shocks.
+  // Income shock impact: expected total income lost to shocks over the horizon
+  // (directly accumulated; excludes risk-event costs and inflation effects).
   const incomeShockImpact =
     numShocks > 0 ? totalIncomeShockLoss / totalPaths : undefined;
 

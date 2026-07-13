@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ShieldCheck, BarChart3, Zap, Calendar, TrendingUp, User,
-  ArrowRight, Star, Check, Lock, ChevronRight, Activity,
+  ArrowRight, Check, Lock, ChevronRight, Activity,
   Shield, Lightbulb, AlertTriangle, Globe
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -35,7 +35,7 @@ const features = [
   {
     icon: BarChart3,
     title: 'VaR & Risk Metrics',
-    description: 'Value at Risk, Sharpe ratio, max drawdown, beta — institutional-grade analytics built for serious investors.',
+    description: 'Value at Risk, Expected Shortfall, drawdown distributions — the metrics professional risk desks rely on.',
     mode: 'pro',
     color: '#38bdf8',
   },
@@ -73,27 +73,23 @@ const steps = [
   },
 ]
 
-const testimonials = [
+// Illustrative use cases — NOT customer testimonials. RiskForge is in active
+// development and has no published customer references yet.
+const exampleUseCases = [
   {
-    quote: "I used to lose sleep before my lease renewal. RiskForge showed me I had 47 days, a $200/month buffer, and a negotiation strategy. I slept fine.",
-    name: 'M.K.',
-    role: 'UX Designer, San Francisco',
-    score: 72,
-    improved: true,
+    quote: "Lease renewal in 47 days, a thin buffer, and no idea if you can absorb a rent hike. Run the scenario and see the probability — not a guess.",
+    name: 'Lease renewal',
+    role: 'Illustrative example',
   },
   {
-    quote: "We run a $40M book. RiskForge Pro gave us stress test visibility we previously needed Bloomberg for. Onboarded in a day.",
-    name: 'D.R.',
-    role: 'Portfolio Manager, NY',
-    score: 41,
-    improved: true,
+    quote: "Replay 2008, the COVID crash, or a rate shock against your current allocation and watch how VaR and Expected Shortfall move.",
+    name: 'Portfolio stress test',
+    role: 'Illustrative example',
   },
   {
-    quote: "The budget stress test told me my entertainment spending would bankrupt my emergency fund in 8 months if I didn't change. I changed.",
-    name: 'T.W.',
-    role: 'Freelance Developer',
-    score: 38,
-    improved: true,
+    quote: "See how many months your emergency fund survives if a car repair, a vet bill, and reduced hours land in the same quarter.",
+    name: 'Compound shocks',
+    role: 'Illustrative example',
   },
 ]
 
@@ -118,18 +114,20 @@ const pricingTiers = [
   {
     name: 'Pro',
     price: 49,
-    description: 'Institutional-grade portfolio risk',
+    description: 'Professional portfolio risk toolkit',
     features: ['Everything in Plus', 'Portfolio stress testing', 'VaR & risk metrics', 'Risk heatmaps', 'Custom alerts', 'Business risk module'],
     cta: 'Start free trial',
     href: '/signup',
   },
 ]
 
+// Only claims we can currently stand behind. Formal certifications (SOC 2,
+// etc.) belong here ONLY once actually obtained.
 const trustBadges = [
-  { icon: Lock, label: 'Bank-level encryption', description: 'AES-256 at rest, TLS 1.3 in transit' },
-  { icon: Shield, label: 'SOC 2 Type II', description: 'Independently audited security controls' },
-  { icon: Globe, label: 'GDPR & CCPA compliant', description: 'Your data belongs to you' },
-  { icon: ShieldCheck, label: 'Read-only access', description: 'We never move your money' },
+  { icon: Lock, label: 'Encrypted in transit', description: 'TLS on every deployed connection' },
+  { icon: Shield, label: 'Reproducible engine', description: 'Seeded, deterministic simulations' },
+  { icon: Globe, label: 'Your data stays yours', description: 'We never sell your data' },
+  { icon: ShieldCheck, label: 'Read-only by design', description: 'We never move your money' },
 ]
 
 const fadeUp = {
@@ -236,20 +234,10 @@ export default function LandingPage() {
               variants={fadeUp}
               className="flex items-center gap-6 mt-8"
             >
-              <div className="flex -space-x-2">
-                {['AM', 'JL', 'RK', 'SP'].map((initials, i) => (
-                  <div key={initials} className={`w-8 h-8 rounded-full border-2 border-base-950 flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br ${i % 2 === 0 ? 'from-brand-500 to-cyan-500' : 'from-purple-500 to-brand-500'}`}>
-                    {initials[0]}
-                  </div>
-                ))}
-              </div>
               <div>
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <p className="text-xs text-text-muted mt-0.5">Trusted by 12,000+ users</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  In active development · Early access · Built on a seeded, reproducible simulation engine
+                </p>
               </div>
             </motion.div>
           </div>
@@ -400,7 +388,7 @@ export default function LandingPage() {
                 </div>
               </div>
               <p className="text-text-secondary mb-6 leading-relaxed">
-                For traders, investors, portfolio managers, and founders who need institutional risk intelligence without the Bloomberg price tag.
+                For traders, investors, portfolio managers, and founders who want serious risk analytics without enterprise-terminal pricing.
               </p>
               <ul className="space-y-2.5 mb-8">
                 {['Portfolio stress testing', 'VaR & CVaR metrics', 'Correlation heatmaps', 'Custom alert engine', 'Business risk workspace'].map(f => (
@@ -530,12 +518,15 @@ export default function LandingPage() {
             className="text-center mb-16"
           >
             <h2 className="text-4xl font-bold text-text-primary mb-4">
-              Real results from real users
+              What RiskForge is built to answer
             </h2>
+            <p className="text-sm text-text-muted">
+              Illustrative scenarios — RiskForge is in active development.
+            </p>
           </motion.div>
 
           <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t, i) => (
+            {exampleUseCases.map((t, i) => (
               <motion.div
                 key={t.name}
                 initial="hidden"
@@ -545,13 +536,8 @@ export default function LandingPage() {
                 variants={fadeUp}
                 className="card-base rounded-xl p-6"
               >
-                <div className="flex items-center gap-1 mb-4">
-                  {Array.from({ length: 5 }).map((_, j) => (
-                    <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <blockquote className="text-sm text-text-secondary leading-relaxed mb-5 italic">
-                  &ldquo;{t.quote}&rdquo;
+                <blockquote className="text-sm text-text-secondary leading-relaxed mb-5">
+                  {t.quote}
                 </blockquote>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-gradient-brand flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
@@ -691,7 +677,7 @@ export default function LandingPage() {
               Your next best move starts here
             </h2>
             <p className="text-lg text-text-secondary mb-8">
-              Join 12,000+ people who stopped guessing and started knowing their risk.
+              Stop guessing and start knowing your risk.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/signup">
@@ -706,7 +692,7 @@ export default function LandingPage() {
                 </Button>
               </Link>
             </div>
-            <p className="text-sm text-text-muted mt-4">No credit card required · 14-day trial · Cancel anytime</p>
+            <p className="text-sm text-text-muted mt-4">Free during early access · No credit card required</p>
           </motion.div>
         </div>
       </section>

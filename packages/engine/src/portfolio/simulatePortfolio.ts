@@ -10,7 +10,8 @@
  *          S_i(t) = S_i(t-1) × exp((μ_i − ½σ_i²) dt + σ_i_eff √dt · z_corr_i)
  *        Where σ_i_eff = GARCH daily sigma when useGarch = true.
  *     5. Merton jump diffusion (optional): add Poisson-distributed jumps.
- *     6. Portfolio value = Σ w_i · S_i(T)  (buy-and-hold, rebalanced daily).
+ *     6. Portfolio value = Σ w_i · S_i(t)  — buy-and-hold: initial weights are
+ *        fixed at t=0 and positions drift with asset values (NO rebalancing).
  *     7. Track peak value and running max drawdown.
  *
  * Antithetic variates (optional): run N/2 independent paths + N/2 antithetic
@@ -47,7 +48,7 @@ import {
   DEFAULT_GARCH_EQUITY,
 } from './garch.js';
 import type { GarchState } from './garch.js';
-import { computeAttribution } from './attribution.js';
+import { computeExpectedShortfallAttribution } from './attribution.js';
 import { computeEfficientFrontier } from './frontier.js';
 
 const TRADING_DAYS_PER_YEAR = 252;
@@ -66,6 +67,7 @@ function buildInterpretation(
   result: Omit<PortfolioRiskResult, 'interpretation' | 'attribution' | 'frontier'>,
   input: PortfolioRiskInput,
   stressed: boolean,
+  esContributions95: readonly number[],
 ): PortfolioRiskResult['interpretation'] {
   const { p05Return, probabilityDrawdownOver20, probabilityDrawdownOver30 } =
     result.summary;
@@ -81,9 +83,10 @@ function buildInterpretation(
     riskLevel = 'low';
   }
 
-  // Rank assets by marginal risk contribution: w_i × σ_i
+  // Rank assets by their simulated Expected Shortfall contribution — this uses
+  // the actual tail attribution (correlations included), not the w·σ heuristic.
   const drivers = input.assets
-    .map((a: PortfolioAsset) => ({ name: a.name, score: a.weight * a.sigma }))
+    .map((a: PortfolioAsset, i: number) => ({ name: a.name, score: esContributions95[i] ?? 0 }))
     .sort((a: { name: string; score: number }, b: { name: string; score: number }) => b.score - a.score)
     .slice(0, 3)
     .map((d: { name: string; score: number }) => d.name);
@@ -488,7 +491,21 @@ export function simulatePortfolio(
 
   const annualFactor = TRADING_DAYS_PER_YEAR / horizonDays;
   const meanReturn = mean(sortedPortfolioReturns);
-  const meanSquaredReturn = meanOfSquares(sortedPortfolioReturns);
+
+  // Annualized volatility from LOG total returns. The std of SIMPLE total
+  // returns explodes under high vol × long horizons (lognormal right tail),
+  // producing absurd figures like 27,000%. Log returns are time-additive, so
+  // sqrt-of-time scaling is valid for them. Portfolio value is strictly
+  // positive (long-only weights, GBM assets), so 1 + R > 0; clamp anyway.
+  let sumLog = 0;
+  let sumLogSq = 0;
+  for (let i = 0; i < sortedPortfolioReturns.length; i++) {
+    const lr = Math.log(Math.max(1e-12, 1 + (sortedPortfolioReturns[i] ?? 0)));
+    sumLog += lr;
+    sumLogSq += lr * lr;
+  }
+  const meanLog = sumLog / sortedPortfolioReturns.length;
+  const varLog = Math.max(0, sumLogSq / sortedPortfolioReturns.length - meanLog * meanLog);
 
   const summary: PortfolioRiskResult['summary'] = {
     meanReturn,
@@ -505,9 +522,7 @@ export function simulatePortfolio(
     probabilityDrawdownOver50: fractionAbove(maxDrawdowns, 0.50),
     medianMaxDrawdown: quantile(maxDrawdowns, 0.5),
     p95MaxDrawdown: quantile(maxDrawdowns, 0.95),
-    annualizedVolatility:
-      Math.sqrt(annualFactor) *
-      Math.sqrt(Math.max(0, meanSquaredReturn - meanReturn * meanReturn)),
+    annualizedVolatility: Math.sqrt(annualFactor) * Math.sqrt(varLog),
   };
 
   const meta: PortfolioRiskResult['meta'] = {
@@ -521,8 +536,8 @@ export function simulatePortfolio(
     stressed,
   };
 
-  // Compute risk attribution.
-  const attribution = computeAttribution(
+  // Compute Expected Shortfall attribution.
+  const attribution = computeExpectedShortfallAttribution(
     assetFinalReturns,
     weights,
     sortedPortfolioReturns,
@@ -530,7 +545,12 @@ export function simulatePortfolio(
     0.99,
   );
 
-  const interpretation = buildInterpretation({ summary, meta }, input, stressed);
+  const interpretation = buildInterpretation(
+    { summary, meta },
+    input,
+    stressed,
+    attribution.expectedShortfallContributions95,
+  );
 
   // Optionally compute efficient frontier.
   let frontier: PortfolioRiskResult['frontier'] | undefined;
@@ -551,13 +571,4 @@ function fractionAbove(sortedAsc: Float64Array, threshold: number): number {
     else hi = mid;
   }
   return (sortedAsc.length - lo) / sortedAsc.length;
-}
-
-function meanOfSquares(arr: Float64Array): number {
-  let sum = 0;
-  for (let i = 0; i < arr.length; i++) {
-    const v = arr[i] ?? 0;
-    sum += v * v;
-  }
-  return sum / arr.length;
 }

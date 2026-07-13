@@ -44,3 +44,6 @@ coverage/
 
 # Turbo
 .turbo/
+
+# Claude Code local state (worktrees, local settings) — never commit
+.claude/

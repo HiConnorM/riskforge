@@ -51,14 +51,53 @@
   - Non-retryable error detection (validation failures, engine errors)
   - Graceful shutdown on SIGTERM/SIGINT
 
-## Next Steps: Phase 3
-- [ ] Wire up Redis result storage end-to-end (start deps, run API + worker)
-- [ ] Add Postgres + Prisma migrations (DATABASE_URL required)
-- [ ] Add test fixtures (fixtures/portfolio/60-40.json, fixtures/personal/fragile.json)
+## Phase 3: End-to-end pipeline ✓
+- [x] Redis result storage end-to-end (API → queue → worker → cache)
+- [x] Rate limiting, CORS, queue-depth protection, content-hash dedup
+- [x] Test suites across engine, domain, API
+
+## Phase 4: Web frontend ✓
+- [x] Next.js app (Everyday + Pro shells), scenario library (100+ templates)
+- [x] Live simulation wiring: Everyday scenarios, budget stress test,
+      Pro portfolio risk, Pro stress testing (useSimulation polling hook)
+- [x] Dev-only auth bypass middleware (NEXT_PUBLIC_BYPASS_AUTH) — ⚠️ remove
+      when Clerk is wired
+
+## Phase 5: Contract & correctness stabilization ✓ (2026-07-13)
+Driven by external audit findings.
+- [x] `apps/web` now imports request/result types from `@riskforge/domain`;
+      duplicated interfaces deleted from `api-client.ts`
+- [x] Fixed stress payloads: `{ factor, targetCorr }` → `{ volMultiplier,
+      corrTarget }` (Zod was silently stripping the unknown keys — "stressed"
+      runs applied no stress)
+- [x] Pro pages read real engine fields (`valueAtRisk95/99`,
+      `medianMaxDrawdown`, `annualizedVolatility`, `mainRiskDrivers`) instead
+      of nonexistent ones (`sharpeRatio`, `probabilityOfLoss`, …)
+- [x] Renamed Component VaR → Component **Expected Shortfall** (the Euler
+      conditional-tail-mean allocation it actually computes)
+- [x] Risk drivers ranked by simulated ES contributions, not w·σ heuristic
+- [x] Emergency fund from 5th pct of per-path **minimum** balance (covers
+      mid-horizon dips that recover by the end)
+- [x] `incomeShockImpact` tracks only income lost to shocks (was confounded
+      with risk-event costs)
+- [x] Efficient frontier explicitly labeled experimental
+- [x] Contract tests (112): every scenario request validates against the domain
+      schema and stress params survive parsing — caught 2 live data bugs
+      (GFC deflation vs schema bound; black-swan df=2 < engine minimum)
+- [x] Quantitative invariant tests: ES ≥ VaR, component ES sums to portfolio
+      ES, stress increases tail risk at fixed seed, determinism
+- [x] Removed unsupported public claims (12k users, testimonials, SOC 2,
+      GDPR/CCPA, bank-level encryption, Bloomberg) from landing/pricing
+
+## Next Steps: Phase 6
+- [ ] Prisma migrations + persistence (results, saved runs); Redis → cache only
+- [ ] Real authentication (Clerk) + ownership on job/result endpoints;
+      remove NEXT_PUBLIC_BYPASS_AUTH
+- [ ] Scenario calibration system (conditional vs probabilistic modes, sourced
+      probabilities: BLS/Census/FRED, versioned)
+- [ ] Real profiles + CSV portfolio import (retire DEFAULT_PROFILE, demo
+      holdings, identity correlations)
 - [ ] Benchmark engine throughput (scripts/bench.ts)
-- [ ] Build web-lite frontend (Next.js + Tailwind)
-- [ ] Add authentication (Clerk or Supabase Auth)
-- [ ] Rate limiting middleware (Redis-backed, per-plan)
 - [ ] Stripe billing integration
 
 ## How to Run

@@ -53,7 +53,7 @@ const tiers = [
     name: 'Pro',
     monthlyPrice: 49,
     annualPrice: 39,
-    description: 'Institutional-grade portfolio risk',
+    description: 'Professional portfolio risk toolkit',
     mode: 'Pro',
     features: [
       'Everything in Plus',
@@ -80,7 +80,6 @@ const tiers = [
     features: [
       'Everything in Pro',
       'Multi-portfolio management',
-      'Bloomberg integration',
       'REST API access',
       'Custom risk models',
       'Team collaboration',
@@ -98,7 +97,7 @@ const faqs = [
   { q: 'Is the free trial really free?', a: 'Yes — no credit card required. You get 14 days of full access to whichever paid plan you choose.' },
   { q: 'Can I switch between Everyday and Pro modes?', a: "Absolutely. Both modes are accessible from the same account. Upgrade to Pro to unlock the portfolio and business risk tools." },
   { q: 'What does "portfolio stress testing" include?', a: 'You can replay historical crises (2008, 2020, 2022), run custom scenarios, and model the impact on each holding in your portfolio.' },
-  { q: "Is my financial data secure?", a: 'We use bank-level AES-256 encryption, SOC 2 Type II controls, and never sell your data. We request read-only access to your accounts.' },
+  { q: "Is my financial data secure?", a: 'RiskForge is in active development. Data is encrypted in transit, account access is read-only by design, and we never sell your data. Formal security certifications (such as SOC 2) will be pursued before general availability — we will not claim them until they are complete.' },
   { q: "Can I cancel anytime?", a: 'Yes. Cancel any time directly from your billing settings. No cancellation fees.' },
   { q: 'Do you offer annual billing?', a: 'Yes — save up to 20% with annual billing. Toggle to see annual prices above.' },
 ]

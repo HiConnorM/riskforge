@@ -107,7 +107,9 @@ export interface PortfolioHoldingInput {
 export function toPortfolioRequest(
   scenario: ScenarioDefinition,
   holdings: PortfolioHoldingInput[],
-  paths = 20_000,
+  // Default within MAX_PATHS_ANONYMOUS (5k): the API rejects anonymous
+  // requests above it with 402 until real auth + plan tiers exist.
+  paths = 5_000,
 ): PortfolioSimRequest | null {
   if (!scenario.portfolioParams) return null
 
@@ -138,8 +140,8 @@ export function toPortfolioRequest(
       distribution: params.distribution,
       ...(params.df !== undefined && { df: params.df }),
       stress: {
-        factor: params.stressFactor,
-        targetCorr: params.targetCorr,
+        volMultiplier: params.stressFactor,
+        corrTarget: params.targetCorr,
       },
     },
   }

@@ -108,7 +108,7 @@ function buildStressRequest(scenarioId: ScenarioId, paths: number): PortfolioSim
       horizonDays: scenario.horizonDays,
       distribution: 'student_t',
       df: 4,
-      stress: { factor: scenario.factor, targetCorr: scenario.targetCorr },
+      stress: { volMultiplier: scenario.factor, corrTarget: scenario.targetCorr },
     },
   }
 }
@@ -116,7 +116,9 @@ function buildStressRequest(scenarioId: ScenarioId, paths: number): PortfolioSim
 export default function StressTestingPage() {
   const [expanded, setExpanded]         = useState<string>('st-001')
   const [activeScenario, setActiveScenario] = useState<ScenarioId | null>(null)
-  const [paths, setPaths]               = useState(20_000)
+  // Default within MAX_PATHS_ANONYMOUS (5k) — the API 402s anonymous requests
+  // above it. Raise once real auth + plan tiers exist.
+  const [paths, setPaths]               = useState(5_000)
   const [liveResults, setLiveResults]   = useState<Record<ScenarioId, PortfolioRiskResult | null>>(
     {} as Record<ScenarioId, PortfolioRiskResult | null>,
   )
@@ -161,7 +163,7 @@ export default function StressTestingPage() {
           volatility: h.volatility,
           assetClass: h.assetClass,
         }))
-      const req = toPortfolioRequest(scenario, holdings, Math.min(paths, 20_000))
+      const req = toPortfolioRequest(scenario, holdings, Math.min(paths, 5_000))
       if (!req) return
       setMacroRunningId(scenario.id)
       setMacroErrors((e) => { const n = { ...e }; delete n[scenario.id]; return n })
@@ -183,7 +185,7 @@ export default function StressTestingPage() {
     for (const scenario of STRESS_SCENARIOS) {
       setActiveScenario(scenario.id)
       await new Promise<void>((resolve) => {
-        sim.run(buildStressRequest(scenario.id, Math.min(paths, 10_000)))
+        sim.run(buildStressRequest(scenario.id, Math.min(paths, 5_000)))
         // Poll until done — hacky but works without saga infrastructure.
         const tid = setInterval(() => {
           if (sim.status === 'done' || sim.status === 'error') {
@@ -202,7 +204,7 @@ export default function StressTestingPage() {
       name: s.name.split(' ').slice(0, 2).join(' '),
       id: s.id,
       impact: live
-        ? -(live.summary.portfolioVaR99 * 100)
+        ? -(live.summary.valueAtRisk99 * 100)
         : stressTests.find((t) => t.id === 'st-' + (STRESS_SCENARIOS.indexOf(s) + 1).toString().padStart(3, '0'))?.portfolioImpactPct ?? -10,
       isLive: !!live,
     }
@@ -352,7 +354,7 @@ export default function StressTestingPage() {
           const live = liveResults[scenario.id]
           const isExpanded = expanded === scenario.id
           const isRunning = sim.isLoading && activeScenario === scenario.id
-          const var99Pct = live ? -(live.summary.portfolioVaR99 * 100) : null
+          const var99Pct = live ? -(live.summary.valueAtRisk99 * 100) : null
           const isNegative = (var99Pct ?? -1) < 0
 
           return (
@@ -370,9 +372,21 @@ export default function StressTestingPage() {
                   : 'border-white/[0.08] bg-white/[0.01]',
               )}
             >
-              <button
-                className="w-full flex items-center justify-between p-5 text-left hover:bg-white/[0.02] transition-colors"
+              {/* div+role, not <button>: the header contains a nested Run
+                  <Button>, and button-in-button is invalid HTML (hydration error). */}
+              <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={isExpanded}
+                className="w-full flex items-center justify-between p-5 text-left cursor-pointer hover:bg-white/[0.02] transition-colors"
                 onClick={() => setExpanded(isExpanded ? '' : scenario.id)}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setExpanded(isExpanded ? '' : scenario.id)
+                  }
+                }}
               >
                 <div className="flex items-center gap-4">
                   <div
@@ -432,7 +446,7 @@ export default function StressTestingPage() {
                     <ChevronDown className="w-4 h-4 text-text-muted" />
                   )}
                 </div>
-              </button>
+              </div>
 
               {isExpanded && live && (
                 <motion.div
@@ -448,12 +462,12 @@ export default function StressTestingPage() {
                       </p>
                       <div className="grid grid-cols-2 gap-3 mt-4">
                         {[
-                          { label: 'VaR 95%', value: `${(live.summary.portfolioVaR95 * 100).toFixed(2)}%`, color: '#f59e0b' },
-                          { label: 'VaR 99%', value: `${(live.summary.portfolioVaR99 * 100).toFixed(2)}%`, color: '#ef4444' },
+                          { label: 'VaR 95%', value: `${(live.summary.valueAtRisk95 * 100).toFixed(2)}%`, color: '#f59e0b' },
+                          { label: 'VaR 99%', value: `${(live.summary.valueAtRisk99 * 100).toFixed(2)}%`, color: '#ef4444' },
                           { label: 'ES 95%', value: `${(live.summary.expectedShortfall95 * 100).toFixed(2)}%`, color: '#ef4444' },
-                          { label: 'Max Drawdown', value: `${(live.summary.maxDrawdown * 100).toFixed(2)}%`, color: '#ef4444' },
-                          { label: 'Sharpe', value: live.summary.sharpeRatio.toFixed(2), color: '#10b981' },
-                          { label: 'Prob. Loss', value: `${(live.summary.probabilityOfLoss * 100).toFixed(1)}%`, color: '#f59e0b' },
+                          { label: 'Median Max DD', value: `${(live.summary.medianMaxDrawdown * 100).toFixed(2)}%`, color: '#ef4444' },
+                          { label: 'Ann. Volatility', value: `${(live.summary.annualizedVolatility * 100).toFixed(1)}%`, color: '#4f8ef7' },
+                          { label: 'P(DD > 20%)', value: `${(live.summary.probabilityDrawdownOver20 * 100).toFixed(1)}%`, color: '#f59e0b' },
                         ].map((m) => (
                           <div key={m.label} className="card-base rounded-lg p-3">
                             <p className="text-xs text-text-muted">{m.label}</p>
@@ -466,13 +480,13 @@ export default function StressTestingPage() {
                     </div>
 
                     <div>
-                      {live.interpretation.drivers.length > 0 && (
+                      {live.interpretation.mainRiskDrivers.length > 0 && (
                         <>
                           <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
                             Risk Drivers
                           </p>
                           <ul className="space-y-2">
-                            {live.interpretation.drivers.map((d, di) => (
+                            {live.interpretation.mainRiskDrivers.map((d, di) => (
                               <li key={di} className="flex items-start gap-2 text-sm text-text-secondary">
                                 <span className="text-red-400 mt-0.5">•</span>
                                 {d}
@@ -562,7 +576,7 @@ export default function StressTestingPage() {
               const isRunning = macroRunningId === scenario.id && macroSim.isLoading
               const isExp  = expandedMacro === scenario.id
               const params = scenario.portfolioParams!
-              const var99  = live ? live.summary.portfolioVaR99 * 100 : null
+              const var99  = live ? live.summary.valueAtRisk99 * 100 : null
 
               return (
                 <motion.div
@@ -577,10 +591,21 @@ export default function StressTestingPage() {
                       : 'border-white/[0.08] bg-white/[0.01]',
                   )}
                 >
-                  {/* Header */}
-                  <button
-                    className="w-full flex items-center gap-4 p-4 text-left hover:bg-white/[0.02] transition-colors"
+                  {/* Header — div+role, not <button>: contains a nested
+                      Simulate <Button> (button-in-button is invalid HTML). */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExp}
+                    className="w-full flex items-center gap-4 p-4 text-left cursor-pointer hover:bg-white/[0.02] transition-colors"
                     onClick={() => setExpandedMacro(isExp ? null : scenario.id)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setExpandedMacro(isExp ? null : scenario.id)
+                      }
+                    }}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
@@ -628,7 +653,7 @@ export default function StressTestingPage() {
                         <ChevronDown className="w-4 h-4 text-text-muted" />
                       )}
                     </div>
-                  </button>
+                  </div>
 
                   {/* Expanded */}
                   <AnimatePresence>
@@ -674,12 +699,12 @@ export default function StressTestingPage() {
                               </p>
                               <div className="grid grid-cols-3 gap-2">
                                 {[
-                                  { label: 'VaR 95%', value: `${(live.summary.portfolioVaR95 * 100).toFixed(2)}%`, color: '#f59e0b' },
-                                  { label: 'VaR 99%', value: `${(live.summary.portfolioVaR99 * 100).toFixed(2)}%`, color: '#ef4444' },
+                                  { label: 'VaR 95%', value: `${(live.summary.valueAtRisk95 * 100).toFixed(2)}%`, color: '#f59e0b' },
+                                  { label: 'VaR 99%', value: `${(live.summary.valueAtRisk99 * 100).toFixed(2)}%`, color: '#ef4444' },
                                   { label: 'ES 95%', value: `${(live.summary.expectedShortfall95 * 100).toFixed(2)}%`, color: '#ef4444' },
-                                  { label: 'Max Drawdown', value: `${(live.summary.maxDrawdown * 100).toFixed(2)}%`, color: '#ef4444' },
-                                  { label: 'Sharpe', value: live.summary.sharpeRatio.toFixed(2), color: '#10b981' },
-                                  { label: 'Prob. Loss', value: `${(live.summary.probabilityOfLoss * 100).toFixed(1)}%`, color: '#f59e0b' },
+                                  { label: 'Median Max DD', value: `${(live.summary.medianMaxDrawdown * 100).toFixed(2)}%`, color: '#ef4444' },
+                                  { label: 'Ann. Volatility', value: `${(live.summary.annualizedVolatility * 100).toFixed(1)}%`, color: '#4f8ef7' },
+                                  { label: 'P(DD > 20%)', value: `${(live.summary.probabilityDrawdownOver20 * 100).toFixed(1)}%`, color: '#f59e0b' },
                                 ].map((m) => (
                                   <div key={m.label} className="bg-white/[0.03] rounded-lg p-2">
                                     <p className="text-xs text-text-muted">{m.label}</p>

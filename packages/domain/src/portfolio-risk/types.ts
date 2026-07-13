@@ -58,12 +58,16 @@ export type PortfolioRiskResult = {
     elapsedMs: number;
     stressed: boolean;
   };
+  /**
+   * Expected Shortfall attribution (Euler / conditional-tail-mean allocation).
+   * Components sum to the portfolio ES at the corresponding confidence level.
+   */
   attribution: {
-    componentVaR95: number[];
-    componentVaR99: number[];
-    percentContributions95: number[];
-    percentContributions99: number[];
-    marginalVaR95: number[];
+    componentExpectedShortfall95: number[];
+    componentExpectedShortfall99: number[];
+    expectedShortfallContributions95: number[];
+    expectedShortfallContributions99: number[];
+    marginalExpectedShortfall95: number[];
     diversificationBenefit95: number;
   };
   frontier?: {

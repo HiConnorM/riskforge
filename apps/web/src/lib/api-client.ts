@@ -5,12 +5,49 @@
  * on non-2xx responses so callers can distinguish network failures from
  * domain errors.
  *
+ * Simulation request/result types come from `@riskforge/domain` — the single
+ * source of truth shared with the API and worker. Do NOT redeclare contract
+ * types here; only HTTP-transport shapes (EnqueuedJob, JobState, ApiError)
+ * belong in this file.
+ *
  * Base URL is read from the `NEXT_PUBLIC_API_URL` environment variable and
  * defaults to `http://localhost:3001` (the API dev-server port).
  */
 
-const API_BASE =
-  (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/\/$/, '')
+import type {
+  SimulationRequest,
+  PersonalCashflowInput,
+  PersonalCashflowResult,
+  PortfolioAsset,
+} from '@riskforge/domain'
+
+// ─── Shared simulation contract (re-exported from @riskforge/domain) ─────────
+
+export type {
+  SimulationRequest,
+  PortfolioAsset,
+  PortfolioRiskInput,
+  PortfolioSimConfig,
+  StressConfig,
+  PortfolioRiskResult,
+  RiskEvent,
+  PersonalCashflowInput,
+  CashflowSimConfig,
+  PersonalCashflowResult,
+} from '@riskforge/domain'
+
+/** The `portfolio_risk` arm of the request union. */
+export type PortfolioSimRequest = Extract<SimulationRequest, { kind: 'portfolio_risk' }>
+
+/** The `personal_cashflow_risk` arm of the request union. */
+export type CashflowSimRequest = Extract<SimulationRequest, { kind: 'personal_cashflow_risk' }>
+
+/** Income shock input shape, derived from the domain input schema. */
+export type IncomeShock = NonNullable<PersonalCashflowInput['incomeShocks']>[number]
+
+// Legacy aliases so existing imports keep compiling. Prefer the domain names.
+export type AssetInput = PortfolioAsset
+export type CashflowRiskResult = PersonalCashflowResult
 
 // ─── Error type ──────────────────────────────────────────────────────────────
 
@@ -25,7 +62,7 @@ export class ApiError extends Error {
   }
 }
 
-// ─── Response shapes ─────────────────────────────────────────────────────────
+// ─── HTTP-transport response shapes (owned by this client) ───────────────────
 
 export interface EnqueuedJob {
   jobId: string
@@ -43,159 +80,10 @@ export interface JobState {
   progress?: number
 }
 
-// ─── Portfolio simulation types ───────────────────────────────────────────────
-
-export interface AssetInput {
-  name: string
-  /** Portfolio weight in [0, 1]. All weights must sum to 1. */
-  weight: number
-  /** Annualised expected return (e.g. 0.08 = 8%). */
-  mu: number
-  /** Annualised volatility (e.g. 0.16 = 16%). */
-  sigma: number
-}
-
-export interface PortfolioSimRequest {
-  kind: 'portfolio_risk'
-  input: {
-    assets: AssetInput[]
-    /** n×n correlation matrix. Row/col order matches `assets`. */
-    corr: number[][]
-  }
-  config: {
-    paths: number
-    horizonDays: number
-    distribution?: 'normal' | 'student_t'
-    df?: number
-    seed?: number
-    stress?: { factor: number; targetCorr: number }
-  }
-}
-
-export interface PortfolioRiskResult {
-  summary: {
-    portfolioVaR95: number
-    portfolioVaR99: number
-    expectedShortfall95: number
-    expectedShortfall99: number
-    portfolioVolatility: number
-    sharpeRatio: number
-    maxDrawdown: number
-    probabilityOfLoss: number
-    meanReturn: number
-    medianReturn: number
-    skewness: number
-    kurtosis: number
-    returnAtP5: number
-    returnAtP25: number
-    returnAtP75: number
-  }
-  interpretation: {
-    riskLevel: 'low' | 'medium' | 'high' | 'critical'
-    drivers: string[]
-    plainEnglishSummary: string
-    stressImpact?: string
-  }
-  meta: {
-    paths: number
-    horizonDays: number
-    distribution: string
-    seed: number
-    engineVersion: string
-    elapsedMs: number
-    stressed: boolean
-  }
-  attribution?: {
-    componentVaR95: number[]
-    componentVaR99: number[]
-    percentContributions95: number[]
-    percentContributions99: number[]
-    marginalVaR95: number[]
-    diversificationBenefit95: number
-  }
-}
-
-// ─── Cashflow simulation types ────────────────────────────────────────────────
-
-export interface RiskEvent {
-  name: string
-  /** Must match the domain RiskEventSchema category enum. */
-  category:
-    | 'car'
-    | 'pet'
-    | 'medical'
-    | 'housing'
-    | 'food'
-    | 'shopping'
-    | 'job'
-    | 'family'
-    | 'utility'
-    | 'appliance'
-    | 'other'
-  probabilityPerMonth: number
-  minCost: number
-  likelyCost?: number
-  maxCost: number
-  maxOccurrences?: number
-}
-
-export interface IncomeShock {
-  name: string
-  probabilityPerYear: number
-  incomeFractionLost: number
-  durationMonthsMin: number
-  durationMonthsMax: number
-}
-
-export interface CashflowSimRequest {
-  kind: 'personal_cashflow_risk'
-  input: {
-    monthlyIncome: number
-    monthlyFixedExpenses: number
-    monthlyVariableExpenses: number
-    currentSavings: number
-    horizonMonths: number
-    riskEvents: RiskEvent[]
-    emergencyThreshold?: number
-    inflationRate?: number
-    incomeShocks?: IncomeShock[]
-  }
-  config: {
-    paths: number
-    seed?: number
-  }
-}
-
-export interface CashflowRiskResult {
-  summary: {
-    probabilityBelowZero: number
-    probabilityBelowEmergencyThreshold: number
-    medianEndingBalance: number
-    p10EndingBalance: number
-    p05EndingBalance: number
-    worstCaseEndingBalance: number
-    recommendedEmergencyFund: number
-    expectedTotalEventCost: number
-    mostFragileMonth: number
-    inflationAdjustedMedianBalance?: number
-    incomeShockImpact?: number
-  }
-  interpretation: {
-    resilienceLevel: 'stable' | 'watch' | 'fragile' | 'critical'
-    topRiskEvents: string[]
-    plainEnglishSummary: string
-    suggestedActions: string[]
-  }
-  meta: {
-    paths: number
-    horizonMonths: number
-    seed: number
-    engineVersion: string
-    elapsedMs: number
-  }
-}
-
 // ─── Core fetch wrapper ───────────────────────────────────────────────────────
+
+const API_BASE =
+  (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/\/$/, '')
 
 async function request<T>(
   path: string,
@@ -253,7 +141,7 @@ async function request<T>(
  * Enqueue a new simulation job. Returns the job ID immediately (202).
  */
 export async function createSimulation(
-  payload: PortfolioSimRequest | CashflowSimRequest,
+  payload: SimulationRequest,
   idempotencyKey?: string,
 ): Promise<EnqueuedJob> {
   return request<EnqueuedJob>('/v1/simulations', {
