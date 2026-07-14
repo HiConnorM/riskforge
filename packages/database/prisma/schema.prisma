@@ -92,13 +92,13 @@ enum OrgRole {
 // ---------------------------------------------------------------------------
 
 model SimulationJob {
-  id            String    @id @default(cuid())
+  id            String  @id @default(cuid())
   userId        String?
   orgId         String?
-  kind          String    // 'portfolio_risk' | 'personal_cashflow_risk'
-  status        String    // 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
-  inputHash     String    // SHA-256 of the serialised input JSON
-  configHash    String    // SHA-256 of the serialised config JSON
+  kind          String // 'portfolio_risk' | 'personal_cashflow_risk'
+  status        String // 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+  inputHash     String // SHA-256 of the serialised input JSON
+  configHash    String // SHA-256 of the serialised config JSON
   engineVersion String
   seed          Int
 
@@ -112,8 +112,8 @@ model SimulationJob {
   finishedAt DateTime?
   failedAt   DateTime?
 
-  user   User?         @relation(fields: [userId], references: [id])
-  org    Organization? @relation(fields: [orgId], references: [id])
+  user   User?             @relation(fields: [userId], references: [id])
+  org    Organization?     @relation(fields: [orgId], references: [id])
   result SimulationResult?
 
   @@index([userId])
@@ -129,9 +129,9 @@ model SimulationJob {
 // ---------------------------------------------------------------------------
 
 model SimulationResult {
-  id     String @id @default(cuid())
-  jobId  String @unique
-  kind   String
+  id    String @id @default(cuid())
+  jobId String @unique
+  kind  String
 
   // Stored as JSON blobs — the API returns these directly.
   summaryJson        Json
@@ -150,16 +150,16 @@ model SimulationResult {
 // ---------------------------------------------------------------------------
 
 model ApiKey {
-  id          String    @id @default(cuid())
-  userId      String?
-  orgId       String?
-  name        String
-  keyHash     String    @unique // SHA-256 of the raw key (hex)
-  keyPrefix   String    // First 8 chars of the key for display (e.g. "sk_live_")
-  scopes      String[]  // e.g. ["simulations:create", "simulations:read"]
-  revokedAt   DateTime?
-  lastUsedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  id         String    @id @default(cuid())
+  userId     String?
+  orgId      String?
+  name       String
+  keyHash    String    @unique // SHA-256 of the raw key (hex)
+  keyPrefix  String // First 8 chars of the key for display (e.g. "sk_live_")
+  scopes     String[] // e.g. ["simulations:create", "simulations:read"]
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   user User?         @relation(fields: [userId], references: [id])
   org  Organization? @relation(fields: [orgId], references: [id])
@@ -178,7 +178,7 @@ model AuditLog {
   id         String  @id @default(cuid())
   userId     String?
   orgId      String?
-  action     String  // e.g. "simulation.created", "api_key.revoked"
+  action     String // e.g. "simulation.created", "api_key.revoked"
   entityType String? // e.g. "SimulationJob", "ApiKey"
   entityId   String?
 
@@ -209,7 +209,7 @@ model UsageEvent {
   id        String  @id @default(cuid())
   userId    String?
   orgId     String?
-  eventType String  // e.g. "simulation.paths", "report.generated"
+  eventType String // e.g. "simulation.paths", "report.generated"
   quantity  Int     @default(1)
 
   metadataJson Json?

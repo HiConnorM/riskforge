@@ -88,7 +88,7 @@ export function buildApp(queue: Queue, options: AppOptions = {}): FastifyInstanc
   fastify.register(cors, {
     origin: allowedOrigins,
     methods: ['GET', 'POST', 'HEAD', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Idempotency-Key'],
+    allowedHeaders: ['Content-Type', 'Idempotency-Key', 'Authorization'],
     // Browser can cache the preflight response for 1 hour.
     maxAge: 3_600,
     // Credentials are intentionally NOT allowed — we use bearer tokens in the

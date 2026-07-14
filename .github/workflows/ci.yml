@@ -36,18 +36,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # The database package depends on @prisma/client which is a generated
-      # artifact, so it is excluded from CI typecheck until migrations land.
-      - name: Typecheck (production packages)
+      # @prisma/client is a generated artifact — generate it so the database
+      # package (and anything importing it) typechecks like it does locally.
+      - name: Generate Prisma client
+        run: pnpm --filter @riskforge/database db:generate
+
+      - name: Typecheck (all packages, including web)
+        run: pnpm -r typecheck
+
+      - name: Prisma schema validate + format check
         run: |
-          pnpm \
-            --filter @riskforge/config \
-            --filter @riskforge/domain \
-            --filter @riskforge/infra \
-            --filter @riskforge/engine \
-            --filter @riskforge/api \
-            --filter @riskforge/worker \
-            typecheck
+          pnpm --filter @riskforge/database exec prisma validate
+          pnpm --filter @riskforge/database exec prisma format --check
 
   test:
     name: Test
@@ -74,6 +74,28 @@ jobs:
         env:
           NODE_ENV: test
 
+  build-web:
+    name: Build web (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter @riskforge/web build
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -96,10 +118,11 @@ jobs:
       - name: Lint
         run: pnpm -r lint
 
-  # Boot dependencies and confirm the API + worker start cleanly. Keeps the
-  # docker-compose definition honest and catches env-validation regressions.
+  # Boot the real pipeline (Redis → API → worker) and assert a simulation
+  # request flows all the way through: enqueue → worker → engine → result.
+  # Also guards the stress-application contract (see .github/scripts/smoke-e2e.mjs).
   smoke:
-    name: Smoke (deps boot)
+    name: Smoke (request → queue → worker → result)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -131,6 +154,30 @@ jobs:
           done
           echo "Redis failed to become ready"
           exit 1
+
+      - name: Boot API + worker
+        run: |
+          (cd apps/api && PORT=3001 npx tsx src/server.ts > /tmp/api.log 2>&1 &)
+          (cd apps/worker && npx tsx src/worker.ts > /tmp/worker.log 2>&1 &)
+          for i in {1..30}; do
+            if curl -sf http://localhost:3001/health > /dev/null; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API failed to become healthy"
+          cat /tmp/api.log
+          exit 1
+
+      - name: "E2E: request → queue → worker → result"
+        run: node .github/scripts/smoke-e2e.mjs
+
+      - name: Print service logs on failure
+        if: failure()
+        run: |
+          echo "=== api.log ===";    cat /tmp/api.log    || true
+          echo "=== worker.log ==="; cat /tmp/worker.log || true
 
       - name: Tear down
         if: always()
